@@ -1,4 +1,4 @@
-const CACHE = 'wohongqi-v1';
+const CACHE = 'wohongqi-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -32,14 +32,15 @@ self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(e.request)
-        .then((resp) => {
+      // 后台静默更新缓存，下次打开即为最新
+      const network = fetch(e.request).then((resp) => {
+        if (resp && resp.status === 200 && resp.type === 'basic') {
           const cp = resp.clone();
           caches.open(CACHE).then((c) => c.put(e.request, cp));
-          return resp;
-        })
-        .catch(() => caches.match('./index.html'));
+        }
+        return resp;
+      }).catch(() => cached);
+      return cached || network;
     })
   );
 });
