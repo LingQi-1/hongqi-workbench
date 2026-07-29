@@ -135,7 +135,7 @@ html, body {
   cursor: pointer;
   padding: 6px 0;
 }
-.tab .tab-ico { font-size: 20px; line-height: 1; }
+.tab .tab-ico { width: 22px; height: 22px; line-height: 1; }
 .tab.active { color: var(--brand); }
 
 /* Form */
@@ -240,6 +240,7 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 500; }
 .cal-cell.today { background: var(--brand-soft); color: var(--brand); font-weight: 700; }
 
 /* Sheet (modal) */
+.sheet-mask[hidden] { display: none !important; }
 .sheet-mask {
   position: fixed; inset: 0; z-index: 50;
   background: rgba(0,0,0,.4);
