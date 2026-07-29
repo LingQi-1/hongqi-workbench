@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+  <meta name="theme-color" content="#C8102E" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>我的红旗</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <span class="brand-dot"></span>
+        <span id="topTitle">加油记录</span>
+        <span id="carChip" class="car-chip">我的红旗</span>
+      </div>
+    </header>
+
+    <main id="view" class="view"></main>
+
+    <nav class="tabbar">
+      <button class="tab active" data-tab="fuel">
+        <span class="tab-ico">&#9981;</span><span class="tab-tx">加油</span>
+      </button>
+      <button class="tab" data-tab="price">
+        <span class="tab-ico">&#128176;</span><span class="tab-tx">油价</span>
+      </button>
+      <button class="tab" data-tab="news">
+        <span class="tab-ico">&#128240;</span><span class="tab-tx">新闻</span>
+      </button>
+      <button class="tab" data-tab="me">
+        <span class="tab-ico">&#9881;</span><span class="tab-tx">我的</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="sheet" class="sheet-mask" hidden>
+    <div class="sheet">
+      <div class="sheet-head"><span id="sheetTitle">标题</span><button id="sheetClose" class="sheet-close">&times;</button></div>
+      <div id="sheetBody" class="sheet-body"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="js/db.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/cars.js"></script>
+  <script src="js/fuel.js"></script>
+  <script src="js/price.js"></script>
+  <script src="js/news.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

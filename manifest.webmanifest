@@ -1,0 +1,19 @@
+{
+  "name": "我的红旗 · 汽车记录工作台",
+  "short_name": "我的红旗",
+  "description": "安卓端汽车记录工作台：加油记录、油价查询、汽车新闻（含红旗专属频道）",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f5f7",
+  "theme_color": "#C8102E",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
