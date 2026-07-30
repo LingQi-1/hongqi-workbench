@@ -7,6 +7,29 @@ const REMINDER_TEMPLATES = [
   { key: 'insurance', label: '保险到期', icon: '🛡️', unit: 'date', defaultInterval: 365 },
 ];
 
+/* ===== 首次使用：填充默认保养提醒，避免模块空白 ===== */
+async function seedRemindersIfNeeded() {
+  try {
+    const seeded = await getSetting('remindersSeeded', false);
+    if (seeded) return;
+    const list = await dbGetAll('reminders');
+    if (list.length > 0) { await setSetting('remindersSeeded', true); return; }
+    const seeds = [
+      { type: 'oil', label: '机油保养', interval: 5000, unit: 'km' },
+      { type: 'tire', label: '轮胎检查', interval: 20000, unit: 'km' },
+      { type: 'inspect', label: '车辆年检', interval: 365, unit: 'date' },
+      { type: 'insurance', label: '保险到期', interval: 365, unit: 'date' },
+    ];
+    for (const s of seeds) {
+      await dbPut('reminders', {
+        id: uid(), type: s.type, label: s.label, interval: s.interval, unit: s.unit,
+        lastOdo: null, lastDate: null, createdAt: Date.now()
+      });
+    }
+    await setSetting('remindersSeeded', true);
+  } catch (e) { /* 仓储异常时静默跳过，不影响其他功能 */ }
+}
+
 /* ===== 保养到期检查 & 通知 ===== */
 let _lastNotifiedMap = {}; // 防止重复通知
 
@@ -131,7 +154,9 @@ async function getLatestOdometer() {
 }
 
 async function renderMaintenance(container) {
-  const reminders = await dbGetAll('reminders');
+  let reminders = [];
+  try { reminders = await dbGetAll('reminders'); }
+  catch (e) { reminders = []; /* 仓储异常时显示空列表而非白屏 */ }
   const latestOdo = await getLatestOdometer();
 
   let html = '<h2>保养提醒</h2>';
