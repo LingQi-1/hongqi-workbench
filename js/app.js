@@ -4,6 +4,7 @@ const TABS = {
   fuel: { title: '加油记录', render: renderFuel },
   price: { title: '油价', render: renderPrice },
   report: { title: '养车报表', render: renderReport },
+  maintenance: { title: '保养', render: renderMaintenance },
   me: { title: '我的', render: renderMe }
 };
 let currentTab = 'fuel';
@@ -18,7 +19,7 @@ async function renderMe(container) {
   container.appendChild(about);
   await renderCarsSection(container);
   await renderCarComparison(container);   // 多车对比（2+车时显示）
-  await renderReminders(container);       // 保养提醒
+  renderThemeSection(container);          // 主题外观切换
   renderSyncSection(container);
 }
 
@@ -49,6 +50,8 @@ function bindUI() {
 
 async function init() {
   await openDB();
+  const theme = await getSetting('theme', 'classic-red');
+  applyTheme(theme);
   await ensureDefaultCar();
   const car = await getCurrentCar();
   $('#carChip').textContent = car ? car.name : '我的红旗';
@@ -63,4 +66,43 @@ async function init() {
 }
 
 window.refreshView = refreshView;
+
+/* ===== 主题换肤 ===== */
+function applyTheme(theme) {
+  const root = document.documentElement;
+  if (!theme || theme === 'classic-red') root.removeAttribute('data-theme');
+  else root.setAttribute('data-theme', theme);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#1c1c1e' : (theme === 'gold' ? '#B8860B' : '#C8102E'));
+}
+
+const THEMES = [
+  { key: 'classic-red', name: '经典红', colors: ['#C8102E', '#f5f5f7'] },
+  { key: 'gold', name: '红旗金', colors: ['#B8860B', '#faf7f0'] },
+  { key: 'dark', name: '暗黑模式', colors: ['#1c1c1e', '#f2f2f7'] },
+];
+
+function renderThemeSection(container) {
+  const cur = document.documentElement.getAttribute('data-theme') || 'classic-red';
+  let html = '<div class="card"><div class="card-title">🎨 主题外观</div><div class="theme-grid">';
+  for (const t of THEMES) {
+    html += `<div class="theme-opt ${t.key === cur ? 'active' : ''}" data-theme="${t.key}">
+      <div class="theme-swatch" style="background:linear-gradient(135deg, ${t.colors[0]} 0 50%, ${t.colors[1]} 50% 100%)"></div>
+      <div class="theme-name">${t.name}</div>
+    </div>`;
+  }
+  html += '</div><p class="muted" style="font-size:12px;margin:10px 0 0">切换即时生效，自动记住你的选择。</p></div>';
+  container.insertAdjacentHTML('beforeend', html);
+
+  container.querySelectorAll('.theme-opt').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const key = el.getAttribute('data-theme');
+      await setSetting('theme', key);
+      applyTheme(key);
+      container.querySelectorAll('.theme-opt').forEach((o) => o.classList.toggle('active', o.getAttribute('data-theme') === key));
+      toast('已切换主题');
+    });
+  });
+}
+
 document.addEventListener('DOMContentLoaded', init);
