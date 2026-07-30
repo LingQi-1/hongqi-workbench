@@ -1,4 +1,8 @@
-/* 新闻模块：免费 RSS 综合频道 + 红旗专属频道（种子兜底，永远不空白） */
+/* 新闻模块：综合频道 + 红旗专属频道
+   真实源（尽力获取，依赖手机网络能否访问代理）：
+     · 综合：中国新闻网汽车 RSS（经 rss2json 代理）→ 新浪新闻接口兜底
+     · 红旗：新浪新闻接口按关键词过滤（红旗/H7/HS7/天工/金葵花…）→ 中国新闻网过滤兜底
+   任何失败都回退到内置种子，保证永不空白、不报错。 */
 
 const NEWS_SEED = [
   { id: 'g1', channel: 'general', title: '2026 新能源车购置补贴政策延续，燃油车市场承压', source: '汽车之家', link: '', pubDate: '2026-07-28', category: '政策' },
@@ -10,27 +14,90 @@ const NEWS_SEED = [
   { id: 'h3', channel: 'hongqi', title: '红旗车主俱乐部夏季自驾活动报名启动', source: '红旗官方', link: '', pubDate: '2026-07-22', category: '车主' }
 ];
 
-const RSS_FEEDS = { general: 'https://www.autohome.com.cn/rss/news.xml' };
+const HQ_KW = ['红旗', 'H7', 'H5', 'HS7', 'HS5', 'HS3', 'H9', 'EHS7', 'EH7', '天工', '金葵花', '一汽红旗', 'HQ'];
+const LIVE_KEY = 'liveNews'; // { general:[...], hongqi:[...] }
 
 let newsChannel = 'general';
 
 async function getFavs() { return getSetting('favNews', []); }
 
-function newsList(channel) {
-  return NEWS_SEED.filter((n) => n.channel === channel)
-    .sort((a, b) => (a.pubDate < b.pubDate ? 1 : -1));
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h).toString(36); }
+async function getLiveNews() { return getSetting(LIVE_KEY, {}); }
+function isHongqi(t) { return HQ_KW.some((k) => t.includes(k)); }
+function catOf(t) {
+  if (/政策|发改委|购置税|补贴|法规/.test(t)) return '政策';
+  if (/上市|发布|官图|预售|新车|交付/.test(t)) return '新车';
+  if (/召回|维权|投诉/.test(t)) return '质量';
+  return '行业';
+}
+
+const RSS2JSON = (feed) => 'https://api.rss2json.com/v1/api.json?rss_url=' + encodeURIComponent(feed);
+const ALLORIGINS = (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u);
+
+async function fetchRssJson(feed) {
+  const r = await fetch(RSS2JSON(feed));
+  const d = await r.json();
+  if (d.status !== 'ok') throw new Error('rss2json ' + d.status);
+  return (d.items || []).slice(0, 12).map((it) => ({
+    id: 'r-' + hashStr(it.link || it.title || Math.random()),
+    title: it.title || '无标题',
+    link: it.link || '',
+    pubDate: (it.pubDate || '').slice(0, 10),
+    source: (d.feed && d.feed.title) || 'RSS',
+    category: catOf(it.title || '')
+  }));
+}
+async function fetchSinaRoll(lid) {
+  const api = `https://feed.mix.sina.com.cn/api/roll/get?pageid=153&lid=${lid}&num=15&order=1`;
+  const r = await fetch(ALLORIGINS(api));
+  const d = await r.json();
+  const items = (d.result && d.result.data) || [];
+  return items.map((it) => ({
+    id: 's-' + hashStr(it.url || it.title || Math.random()),
+    title: it.title || '无标题',
+    link: it.url || it.link || '',
+    pubDate: fmtDate(new Date((it.ctime || Date.now() / 1000) * 1000)),
+    source: '新浪',
+    category: catOf(it.title || '')
+  }));
+}
+
+/* 综合：中国新闻网汽车 RSS → 新浪兜底 */
+async function fetchGeneral() {
+  try { return await fetchRssJson('https://www.chinanews.com.cn/rss/auto.shtml'); } catch (e) { /* next */ }
+  try { return await fetchSinaRoll(2511); } catch (e) { /* next */ }
+  return null;
+}
+/* 红旗：新浪按关键词过滤 → 中国新闻网过滤兜底 */
+async function fetchHongqi() {
+  try {
+    const all = await fetchSinaRoll(2511);
+    const f = all.filter((i) => isHongqi(i.title));
+    if (f.length >= 3) return f;
+  } catch (e) { /* next */ }
+  try {
+    const all = await fetchRssJson('https://www.chinanews.com.cn/rss/auto.shtml');
+    const f = all.filter((i) => isHongqi(i.title));
+    if (f.length) return f;
+  } catch (e) { /* next */ }
+  return null;
 }
 
 async function renderNews(container) {
   const favs = await getFavs();
+  const live = await getLiveNews();
+  const cached = (live[newsChannel] && live[newsChannel].length) ? live[newsChannel] : null;
+  const list = cached || NEWS_SEED.filter((n) => n.channel === newsChannel)
+    .sort((a, b) => (a.pubDate < b.pubDate ? 1 : -1));
+  const fromLive = !!cached;
+
   let html = `<div class="news-tabs">
     <div class="news-tab ${newsChannel === 'general' ? 'active' : ''}" data-nc="general">综合</div>
     <div class="news-tab ${newsChannel === 'hongqi' ? 'active' : ''}" data-nc="hongqi">红旗专属</div>
   </div>`;
   html += `<button class="btn ghost sm" id="newsRefresh" style="margin-bottom:12px">↻ 刷新</button>`;
 
-  const list = newsList(newsChannel);
-  if (list.length === 0) {
+  if (!list.length) {
     html += '<div class="empty">暂无新闻</div>';
   } else {
     for (const n of list) {
@@ -44,10 +111,10 @@ async function renderNews(container) {
       </div>`;
     }
   }
-  if (newsChannel === 'hongqi') html += '<p class="muted" style="font-size:12px">红旗动态为示例内容，可在 js/news.js 中替换为红旗官方 RSS。</p>';
+  if (newsChannel === 'hongqi' && !fromLive) html += '<p class="muted" style="font-size:12px">当前为示例内容；联网刷新将尝试获取真实红旗动态。</p>';
+  if (newsChannel === 'general' && !fromLive) html += '<p class="muted" style="font-size:12px">当前为示例内容；联网刷新将尝试获取真实汽车资讯。</p>';
 
   container.innerHTML = html;
-
   container.querySelectorAll('[data-nc]').forEach((b) => b.addEventListener('click', () => { newsChannel = b.getAttribute('data-nc'); renderNews(container); }));
   container.querySelector('#newsRefresh').addEventListener('click', () => refreshNews(container));
   container.querySelectorAll('[data-link]').forEach((b) => b.addEventListener('click', () => { const u = b.getAttribute('data-link'); if (u) openUrl(u); }));
@@ -63,26 +130,18 @@ async function renderNews(container) {
 }
 
 async function refreshNews(container) {
-  if (newsChannel === 'hongqi') { toast('红旗为官方示例，已刷新'); renderNews(container); return; }
-  toast('正在获取最新资讯…');
+  const isHq = newsChannel === 'hongqi';
+  toast(isHq ? '正在获取红旗动态…' : '正在获取最新资讯…');
   try {
-    const url = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(RSS_FEEDS.general)}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('bad');
-    const data = await resp.json();
-    const items = (data.items || []).slice(0, 8);
-    for (const it of items) {
-      const id = 'r' + Date.now() + Math.random().toString(36).slice(2, 6);
-      NEWS_SEED.unshift({
-        id, channel: 'general',
-        title: it.title || '无标题',
-        source: (data.feed && data.feed.title) || 'RSS',
-        link: it.link || '',
-        pubDate: (it.pubDate || '').slice(0, 10),
-        category: '资讯'
-      });
+    const items = isHq ? await fetchHongqi() : await fetchGeneral();
+    if (items && items.length) {
+      const live = await getLiveNews();
+      live[newsChannel] = items.slice(0, 12);
+      await setSetting(LIVE_KEY, live);
+      toast('已更新最新资讯');
+    } else {
+      toast('未获取到新内容，显示示例');
     }
-    toast('已更新最新资讯');
   } catch (e) {
     toast('在线获取失败，显示示例内容');
   }
