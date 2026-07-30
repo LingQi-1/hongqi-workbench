@@ -1,7 +1,7 @@
 /* IndexedDB wrapper + shared helpers for 我的红旗 PWA */
 
 const DB_NAME = 'wohongqi';
-const DB_VER = 3;
+const DB_VER = 4;
 let _db = null;
 
 function openDB() {
