@@ -193,36 +193,53 @@ function openFuelForm() {
   openSheet('添加加油记录', wrap);
 
   const L = wrap.querySelector('#f_l'), A = wrap.querySelector('#f_a'), P = wrap.querySelector('#f_p');
-  let derivedField = null; // 当前由系统自动算出的那一项的 id
+  let lastEdited = null; // 用户最后手动编辑的字段（'f_l'/'f_a'/'f_p'）
   function autoDerive(changed) {
     const lv = L.value.trim(), av = A.value.trim(), pv = P.value.trim();
     const lN = parseFloat(lv), aN = parseFloat(av), pN = parseFloat(pv);
-    // 用户正在清空某字段 → 同时清掉旧的系统推导值，彻底解除“锁死”，可自由改任意项
+
+    // 记录用户最后编辑的字段（排除系统自动赋值）
     if (changed) {
-      const cleared = changed === L ? lv === '' : changed === A ? av === '' : pv === '';
-      if (cleared) {
-        if (derivedField && derivedField !== changed.getAttribute('id')) {
-          (derivedField === 'f_l' ? L : derivedField === 'f_a' ? A : P).value = '';
-        }
-        derivedField = null;
-        return;
-      }
-      if (changed.getAttribute('id') === derivedField) derivedField = null; // 用户改了推导项本身
+      const changedId = changed.getAttribute('id');
+      // 如果用户清空了某字段，也记录为最后编辑
+      const val = changed === L ? lv : changed === A ? av : pv;
+      if (val !== '') lastEdited = changedId;
+      else lastEdited = changedId; // 清空也算编辑，允许后续重新推导
     }
-    const empties = [];
-    if (lv === '' || isNaN(lN)) empties.push('L');
-    if (av === '' || isNaN(aN)) empties.push('A');
-    if (pv === '' || isNaN(pN)) empties.push('P');
-    if (empties.length !== 1) { derivedField = null; return; } // 不是“恰好两项已填”就不推导
-    const e = empties[0];
+
+    // 统计有效填写数
+    const hasL = lv !== '' && !isNaN(lN);
+    const hasA = av !== '' && !isNaN(aN);
+    const hasP = pv !== '' && !isNaN(pN);
+    const filledCount = (hasL ? 1 : 0) + (hasA ? 1 : 0) + (hasP ? 1 : 0);
+
+    // 0 或 2 个空 → 不推导（信息不足或用户还在填）
+    if (filledCount < 2) return;
+
+    // 确定推导目标：用户正在编辑的字段不覆盖；优先推导非"最后手动编辑"的字段
+    const changingId = changed ? changed.getAttribute('id') : null;
+    let target = null;
     let val = null;
-    if (e === 'L' && !isNaN(aN) && !isNaN(pN) && pN !== 0) val = aN / pN;       // 升数 = 金额 / 单价
-    if (e === 'A' && !isNaN(lN) && !isNaN(pN)) val = lN * pN;                   // 金额 = 升数 × 单价
-    if (e === 'P' && !isNaN(lN) && !isNaN(aN) && lN !== 0) val = aN / lN;       // 单价 = 金额 / 升数
-    if (val == null || !isFinite(val)) { derivedField = null; return; }
-    const target = e === 'L' ? L : e === 'A' ? A : P;
+
+    if (!hasP && hasL && hasA && lN !== 0) { target = P; val = aN / lN; }       // 单价 = 金额/升数
+    else if (!hasA && hasL && hasP) { target = A; val = lN * pN; }               // 金额 = 升数×单价
+    else if (!hasL && hasA && hasP && pN !== 0) { target = L; val = aN / pN; }   // 升数 = 金额/单价
+    else if (filledCount === 3) {
+      // 三字段全满时：重算"非当前编辑且非最后手动编辑"的字段，保证数据一致
+      // 例如用户在改金额(L=23.21,A=200→201,P=8.62)，应更新 P=201/23.21=8.66
+      const candidates = [];
+      if (changingId !== 'f_p' && lastEdited !== 'f_p') candidates.push({ el: P, id: 'f_p', fn: () => aN / lN });
+      if (changingId !== 'f_a' && lastEdited !== 'f_a') candidates.push({ el: A, id: 'f_a', fn: () => lN * pN });
+      if (changingId !== 'f_l' && lastEdited !== 'f_l') candidates.push({ el: L, id: 'f_l', fn: () => pN > 0 ? aN / pN : NaN });
+      if (candidates.length > 0) {
+        const c = candidates[0]; // 取第一个候选（优先保单价，因为最常被推导）
+        val = c.fn();
+        target = c.el;
+      }
+    }
+
+    if (!target || val == null || !isFinite(val)) return;
     target.value = (Math.round(val * 100) / 100).toString();
-    derivedField = target.getAttribute('id');
   }
   [L, A, P].forEach((i) => i.addEventListener('input', () => autoDerive(i)));
   // 日期快捷选择
