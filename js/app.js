@@ -162,7 +162,7 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.1';
+const APP_VERSION = '2.0.2';
 const APP_BUILD_DATE = '2026-07-30';
 
 async function renderMe(container) {
@@ -231,7 +231,8 @@ async function init() {
   setTimeout(() => checkAndNotifyReminders().catch(() => {}), 2000);
   // 每5分钟检查一次（页面打开期间）
   setInterval(() => checkAndNotifyReminders().catch(() => {}), 300000);
-  const start = location.hash.replace('#', '') || 'fuel';
+  // 每次打开默认进入「加油记录」，避免 PWA 恢复上次停留的 Tab（如 #me）
+  const start = 'fuel';
   await route(start);
 }
 
