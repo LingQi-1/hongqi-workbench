@@ -52,7 +52,9 @@ async function init() {
   $('#carChip').textContent = car ? car.name : '我的红旗';
   bindUI();
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      if (reg) reg.update().catch(() => {}); // 主动检查更新，避免卡在旧SW
+    }).catch(() => {});
   }
   const start = location.hash.replace('#', '') || 'fuel';
   await route(start);
