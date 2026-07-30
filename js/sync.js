@@ -1,11 +1,204 @@
-/* 云同步：GitHub Gist 备份/恢复 + 本地导出/导入 */
+/* 云同步：GitHub Gist 备份/恢复 + 本地导出/导入 + 多车对比 + 保养提醒 */
+
+/* ===== 多车对比看板 ===== */
+async function renderCarComparison(container) {
+  const cars = await dbGetAll('cars');
+  if (cars.length < 2) return; // 不显示
+
+  const allRecords = await dbGetAll('records');
+  const comparison = [];
+
+  for (const car of cars) {
+    const recs = allRecords.filter((r) => r.carId === car.id);
+    const st = fuelStats(recs);
+    comparison.push({ car, st, count: recs.length });
+  }
+
+  let html = '<div class="card"><div class="card-title">🔄 多车对比</div>';
+  html += '<table class="tbl"><thead><tr><th>车辆</th><th>花费</th><th>加油量</th><th>均价</th><th>次数</th></tr></thead><tbody>';
+  for (const c of comparison) {
+    html += `<tr>
+      <td style="font-weight:600">${escapeHtml(c.car.name)}</td>
+      <td style="color:var(--brand);font-weight:600">¥${fmtMoney(c.st.totalA)}</td>
+      <td>${c.st.totalL.toFixed(1)}L</td>
+      <td>${c.st.avg != null ? '¥' + c.st.avg.toFixed(2) : '—'}</td>
+      <td>${c.count}</td>
+    </tr>`;
+  }
+  html += '</tbody></table></div>';
+  container.insertAdjacentHTML('beforeend', html);
+}
+
+/* ===== 保养提醒 ===== */
+const REMINDER_TEMPLATES = [
+  { key: 'oil', label: '机油保养', icon: '🛢️', unit: 'km', defaultInterval: 5000 },
+  { key: 'tire', label: '轮胎检查', icon: '🛞', unit: 'km', defaultInterval: 20000 },
+  { key: 'inspect', label: '年检', icon: '📋', unit: 'date', defaultInterval: 365 },
+  { key: 'insurance', label: '保险到期', icon: '🛡️', unit: 'date', defaultInterval: 365 },
+];
+
+function checkReminderDue(r, latestOdo) {
+  if (r.unit === 'km') {
+    if (!latestOdo || !r.lastOdo) return false;
+    return (latestOdo - r.lastOdo) >= r.interval;
+  } else {
+    if (!r.lastDate) return false;
+    const days = Math.floor((Date.now() - new Date(r.lastDate).getTime()) / 86400000);
+    return days >= r.interval;
+  }
+}
+
+function formatReminderStatus(r, latestOdo) {
+  if (r.unit === 'km') {
+    if (!latestOdo || !r.lastOdo) return { text: '未设置', ok: false, urgent: false };
+    const remain = r.interval - (latestOdo - r.lastOdo);
+    if (remain <= 0) return { text: '⚠️ 已超期 ' + Math.abs(remain).toFixed(0) + ' km', ok: false, urgent: true };
+    if (remain < r.interval * 0.2) return { text: '即将到期（剩 ' + remain.toFixed(0) + ' km）', ok: true, urgent: true };
+    return { text: '正常（剩 ' + remain.toFixed(0) + ' km）', ok: true, urgent: false };
+  } else {
+    if (!r.lastDate) return { text: '未设置', ok: false, urgent: false };
+    const days = Math.floor((Date.now() - new Date(r.lastDate).getTime()) / 86400000);
+    const remain = r.interval - days;
+    if (remain <= 0) return { text: '⚠️ 已超期 ' + Math.abs(remain) + ' 天', ok: false, urgent: true };
+    if (remain < r.interval * 0.2) return { text: '即将到期（剩 ' + remain + ' 天）', ok: true, urgent: true };
+    return { text: '正常（剩 ' + remain + ' 天）', ok: true, urgent: false };
+  }
+}
+
+async function getLatestOdometer() {
+  const id = await getCurrentCarId();
+  const recs = await dbGetAll('records');
+  const carRecs = recs.filter((r) => r.carId === id && r.odometer != null && r.odometer !== '');
+  if (carRecs.length === 0) return null;
+  return Math.max(...carRecs.map((r) => parseFloat(r.odometer)));
+}
+
+async function renderReminders(container) {
+  const reminders = await dbGetAll('reminders');
+  const latestOdo = await getLatestOdometer();
+
+  let html = '<div class="card"><div class="card-title">🔔 保养提醒</div>';
+
+  // 状态总览
+  let urgentCount = 0;
+  for (const r of reminders) {
+    if (checkReminderDue(r, latestOdo)) urgentCount++;
+  }
+  if (urgentCount > 0) {
+    html += `<div class="info-line" style="background:#fef3cd;color:#856404;border-color:#ffc107">⚠️ 有 ${urgentCount} 项保养已到期或即将到期，请检查！</div>`;
+  }
+
+  // 列表
+  if (reminders.length === 0) {
+    html += '<div class="muted" style="font-size:13px;padding:10px 0">暂无提醒，点击下方添加</div>';
+  } else {
+    for (const r of reminders) {
+      const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
+      const st = formatReminderStatus(r, latestOdo);
+      html += `<div class="item" data-rid="${r.id}" style="cursor:pointer">
+        <span style="font-size:22px">${tpl.icon || '📌'}</span>
+        <div class="main">
+          <div class="t1">${escapeHtml(r.label || tpl.label || r.type)} ${st.urgent ? '' : ''}</div>
+          <div class="t2" style="${st.urgent && !st.ok ? 'color:var(--brand);font-weight:600' : ''}">${st.text}</div>
+        </div>
+        <span class="del" data-rid="${r.id}">&times;</span>
+      </div>`;
+    }
+  }
+
+  // 添加按钮
+  html += `<button class="btn ghost sm" id="addRmdBtn" style="margin-top:10px">+ 添加提醒</button>`;
+  html += '</div>';
+  container.insertAdjacentHTML('beforeend', html);
+
+  // 删除
+  container.querySelectorAll('[data-rid].del').forEach((b) => {
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('删除此提醒？')) return;
+      await dbDel('reminders', b.getAttribute('data-rid'));
+      await refreshView();
+      toast('已删除');
+    });
+  });
+
+  // 点击编辑
+  container.querySelectorAll('[data-rid].item').forEach((el) => {
+    el.addEventListener('click', () => openReminderForm(el.getAttribute('data-rid')));
+  });
+
+  // 新增
+  container.querySelector('#addRmdBtn').addEventListener('click', () => openReminderForm());
+}
+
+function openReminderForm(editId) {
+  const wrap = document.createElement('div');
+  const tplOpts = REMINDER_TEMPLATES.map((t) =>
+    `<option value="${t.key}">${t.icon} ${t.label}</option>`
+  ).join('');
+
+  wrap.innerHTML = `
+    <div class="field"><label>提醒类型</label><select id="r_type">${tplOpts}</select></div>
+    <div class="field"><label>备注名（可选）</label><input id="r_label" placeholder="如：全合成机油 5W-30" /></div>
+    <div class="field"><label>间隔（公里或天）</label><input type="number" id="r_interval" inputmode="numeric" placeholder="如 5000 或 365" /></div>
+    <div class="field"><label>上次保养里程 / 日期（选填）</label>
+      <input type="text" id="r_last" placeholder="里程填数字，日期填 YYYY-MM-DD" />
+    </div>
+    <p class="muted" style="font-size:12px">系统会根据最新加油记录的里程自动判断是否到期。</p>
+  `;
+  openSheet(editId ? '编辑提醒' : '添加保养提醒', wrap);
+
+  // 回填
+  if (editId) {
+    dbGet('reminders', editId).then((r) => {
+      if (!r) return;
+      wrap.querySelector('#r_type').value = r.type || 'oil';
+      wrap.querySelector('#r_label').value = r.label || '';
+      wrap.querySelector('#r_interval').value = r.interval || '';
+      wrap.querySelector('#r_last').value = r.unit === 'km'
+        ? (r.lastOdo || '')
+        : (r.lastDate || '');
+    });
+  }
+
+  const save = document.createElement('button');
+  save.className = 'btn';
+  save.textContent = '保存';
+  save.onclick = async () => {
+    const type = wrap.querySelector('#r_type').value;
+    const tpl = REMINDER_TEMPLATES.find((t) => t.key === type) || REMINDER_TEMPLATES[0];
+    const label = wrap.querySelector('#r_label').value.trim();
+    const interval = parseInt(wrap.querySelector('#r_interval').value, 10);
+    const lastVal = wrap.querySelector('#r_last').value.trim();
+
+    if (!interval || interval <= 0) { toast('请填写有效间隔'); return; }
+
+    const rec = {
+      id: editId || uid(),
+      type,
+      label: label || tpl.label,
+      interval,
+      unit: tpl.unit,
+      lastOdo: tpl.unit === 'km' && lastVal ? parseFloat(lastVal) : null,
+      lastDate: tpl.unit === 'date' && lastVal ? lastVal : null,
+      createdAt: Date.now()
+    };
+
+    await dbPut('reminders', rec);
+    closeSheet();
+    await refreshView();
+    toast('已保存');
+  };
+  wrap.appendChild(save);
+}
 
 async function collectBackup() {
   const cars = await dbGetAll('cars');
   const records = await dbGetAll('records');
+  const reminders = await dbGetAll('reminders');
   const priceOverrides = await getSetting('priceOverrides', {});
   const currentCarId = await getSetting('currentCarId', null);
-  return { v: 1, ts: Date.now(), cars, records, priceOverrides, currentCarId };
+  return { v: 2, ts: Date.now(), cars, records, reminders, priceOverrides, currentCarId };
 }
 
 async function applyBackup(obj) {
@@ -13,8 +206,10 @@ async function applyBackup(obj) {
   // 清空现有
   for (const c of await dbGetAll('cars')) await dbDel('cars', c.id);
   for (const r of await dbGetAll('records')) await dbDel('records', r.id);
+  for (const r of await dbGetAll('reminders')) await dbDel('reminders', r.id);
   for (const c of obj.cars) await dbPut('cars', c);
   for (const r of obj.records) await dbPut('records', r);
+  if (obj.reminders) for (const r of obj.reminders) await dbPut('reminders', r);
   await setSetting('priceOverrides', obj.priceOverrides || {});
   await setSetting('currentCarId', obj.currentCarId || (obj.cars[0] && obj.cars[0].id));
 }
