@@ -164,6 +164,10 @@ async function renderFuel(container) {
 
   container.querySelector('#addFuelBtn').addEventListener('click', openFuelForm);
 
+  // 首页顶部：爱车陪伴横幅（情绪价值，独立于加油记录）
+  const banner = await renderCompanionshipBanner();
+  if (banner) container.insertBefore(banner, container.firstChild);
+
   container.querySelectorAll('[data-del]').forEach((b) => {
     b.addEventListener('click', async () => {
       if (!confirm('删除这条记录？')) return;
