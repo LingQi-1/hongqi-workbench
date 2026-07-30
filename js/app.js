@@ -3,7 +3,6 @@
 const TABS = {
   fuel: { title: '加油记录', render: renderFuel },
   price: { title: '油价', render: renderPrice },
-  news: { title: '汽车新闻', render: renderNews },
   me: { title: '我的', render: renderMe }
 };
 let currentTab = 'fuel';
@@ -14,7 +13,7 @@ async function renderMe(container) {
   about.className = 'card';
   about.innerHTML = `<div class="card-title">关于「我的红旗」</div>
     <div class="t1" style="font-weight:600">汽车记录工作台 · PWA</div>
-    <div class="t2 muted" style="font-size:12px;margin-top:4px">加油记录 · 油价查询 · 汽车新闻（含红旗专属）<br>数据存本机，可云同步永不丢失</div>`;
+    <div class="t2 muted" style="font-size:12px;margin-top:4px">加油记录 · 油价查询 · 多车管理<br>数据存本机，可云同步永不丢失</div>`;
   container.appendChild(about);
   await renderCarsSection(container);
   renderSyncSection(container);
