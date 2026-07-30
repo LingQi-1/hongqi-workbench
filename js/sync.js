@@ -4,9 +4,8 @@ async function collectBackup() {
   const cars = await dbGetAll('cars');
   const records = await dbGetAll('records');
   const priceOverrides = await getSetting('priceOverrides', {});
-  const favNews = await getSetting('favNews', []);
   const currentCarId = await getSetting('currentCarId', null);
-  return { v: 1, ts: Date.now(), cars, records, priceOverrides, favNews, currentCarId };
+  return { v: 1, ts: Date.now(), cars, records, priceOverrides, currentCarId };
 }
 
 async function applyBackup(obj) {
@@ -17,7 +16,6 @@ async function applyBackup(obj) {
   for (const c of obj.cars) await dbPut('cars', c);
   for (const r of obj.records) await dbPut('records', r);
   await setSetting('priceOverrides', obj.priceOverrides || {});
-  await setSetting('favNews', obj.favNews || []);
   await setSetting('currentCarId', obj.currentCarId || (obj.cars[0] && obj.cars[0].id));
 }
 
@@ -70,19 +68,10 @@ function renderSyncSection(container) {
     <p class="muted" style="font-size:12px">Token 需有 gist 权限；数据保存在你自己的 GitHub 账号，永久不失效。</p>
     <input type="file" id="importFile" accept="application/json" hidden />
   </div>`;
-  html += `<div class="card">
-    <div class="card-title">新闻数据源（真实红旗动态）</div>
-    <div class="field"><label>新闻代理地址（Cloudflare Worker）</label><input id="newsProxy" placeholder="https://xxx.workers.dev" /></div>
-    <p class="muted" style="font-size:12px">留空则显示示例内容。部署方法见 README：「接入真实新闻（Cloudflare Worker）」一节。</p>
-  </div>`;
   container.insertAdjacentHTML('beforeend', html);
 
   // 回填已保存的 gistId
   getSetting('syncGist', '').then((g) => { const el = container.querySelector('#syncGist'); if (g) el.value = g; });
-  // 回填并保存新闻代理地址
-  getSetting('newsProxy', '').then((g) => { const el = container.querySelector('#newsProxy'); if (g) el.value = g; });
-  const npEl = container.querySelector('#newsProxy');
-  if (npEl) npEl.addEventListener('change', async (e) => { await setSetting('newsProxy', e.target.value.trim()); toast('已保存新闻代理地址'); });
 
   container.querySelector('#syncBackup').addEventListener('click', async () => {
     const tk = container.querySelector('#syncToken').value.trim();
