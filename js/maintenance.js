@@ -7,6 +7,93 @@ const REMINDER_TEMPLATES = [
   { key: 'insurance', label: '保险到期', icon: '🛡️', unit: 'date', defaultInterval: 365 },
 ];
 
+/* ===== 保养到期检查 & 通知 ===== */
+let _lastNotifiedMap = {}; // 防止重复通知
+
+async function checkAndNotifyReminders() {
+  const reminders = await dbGetAll('reminders');
+  const latestOdo = await getLatestOdometer();
+  const now = Date.now();
+  const urgentItems = [];
+
+  for (const r of reminders) {
+    // 节流：同一提醒5分钟内不重复通知
+    if (_lastNotifiedMap[r.id] && now - _lastNotifiedMap[r.id] < 300000) continue;
+
+    const isDue = checkReminderDue(r, latestOdo);
+    if (!isDue) {
+      // 检查是否即将到期（20%以内）
+      const st = formatReminderStatus(r, latestOdo);
+      if (!st.urgent) continue;
+    }
+
+    const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
+    const st = formatReminderStatus(r, latestOdo);
+    urgentItems.push({ r, tpl, st });
+    _lastNotifiedMap[r.id] = now;
+  }
+
+  if (urgentItems.length === 0) return;
+
+  // 1. 页面内弹窗提示
+  const msg = urgentItems.map((item) => `⚠️ ${item.tpl.icon} ${item.r.label || item.tpl.label}：${item.st.text}`).join('\n');
+  showMaintenanceAlert(msg);
+
+  // 2. 浏览器推送通知（如果已授权）
+  if ('Notification' in window && Notification.permission === 'granted') {
+    for (const item of urgentItems) {
+      try {
+        new Notification('🚗 我的红旗 - 保养提醒', {
+          body: `${item.r.label || item.tpl.label}：${item.st.text}`,
+          icon: 'icon.svg',
+          tag: `rmd-${item.r.id}`, // 相同tag会替换而非堆叠
+        });
+      } catch (e) { /* 忽略通知失败 */ }
+    }
+  }
+}
+
+function showMaintenanceAlert(msg) {
+  // 创建一个全局的保养提醒弹窗
+  const existing = document.getElementById('maintenanceAlert');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'maintenanceAlert';
+  overlay.style.cssText = `
+    position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.45); animation:fadeIn .2s ease;
+  `;
+  overlay.innerHTML = `
+    <div style="background:var(--card); border-radius:18px; padding:24px 20px; margin:20px; max-width:340px; width:100%; text-align:center; animation:slideUp .25s ease">
+      <div style="font-size:40px;margin-bottom:8px">🔔</div>
+      <div style="font-size:17px;font-weight:700;margin-bottom:10px">保养提醒</div>
+      <pre style="font-family:inherit;font-size:14px;color:var(--text);white-space:pre-wrap;line-height:1.6;margin:0 0 16px;text-align:left;background:var(--bg);padding:12px;border-radius:10px">${msg}</pre>
+      <div style="display:flex;gap:8px">
+        <button id="alertLater" style="flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font-size:14px">稍后提醒</button>
+        <button id="alertGo" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--brand);color:#fff;font-size:14px;font-weight:600">去查看</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#alertLater').onclick = () => overlay.remove();
+  overlay.querySelector('#alertGo').onclick = () => {
+    overlay.remove();
+    location.hash = '#maintenance';
+  };
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+}
+
+/* 请求通知权限 */
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission().then((perm) => {
+      if (perm === 'granted') toast('推送通知已开启，到期时会收到提醒');
+    }).catch(() => {});
+  }
+}
+
 function checkReminderDue(r, latestOdo) {
   if (r.unit === 'km') {
     if (!latestOdo || !r.lastOdo) return false;
@@ -80,6 +167,13 @@ async function renderMaintenance(container) {
   }
 
   html += `<button class="btn" id="addRmdBtn" style="margin-top:12px">+ 添加保养提醒</button>`;
+
+  // 推送通知开关
+  const notifStatus = 'Notification' in window ? (Notification.permission === 'granted' ? '已开启' : Notification.permission === 'denied' ? '已拒绝' : '未开启') : '不支持';
+  html += `<div class="card" style="margin-top:12px"><div class="card-title">📱 推送通知</div>
+    <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${Notification.permission === 'granted' ? 'ghost' : ''}" style="width:auto">${notifStatus} · 点此设置</button></div>
+    <p class="muted" style="font-size:11px;margin:6px 0 0">开启后，保养到期时即使不在本页面也会收到系统提醒。</p></div>`;
+
   html += '</div>';
   container.innerHTML = html;
 
@@ -101,6 +195,16 @@ async function renderMaintenance(container) {
 
   // 新增
   container.querySelector('#addRmdBtn').addEventListener('click', () => openReminderForm());
+
+  // 推送通知
+  const notifBtn = container.querySelector('#notifBtn');
+  if (notifBtn) {
+    notifBtn.addEventListener('click', () => {
+      if (!('Notification' in window)) { toast('您的浏览器不支持推送通知'); return; }
+      if (Notification.permission === 'denied') { toast('请在浏览器设置中允许通知权限'); return; }
+      requestNotificationPermission();
+    });
+  }
 }
 
 function openReminderForm(editId) {
