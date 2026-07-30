@@ -70,10 +70,19 @@ function renderSyncSection(container) {
     <p class="muted" style="font-size:12px">Token 需有 gist 权限；数据保存在你自己的 GitHub 账号，永久不失效。</p>
     <input type="file" id="importFile" accept="application/json" hidden />
   </div>`;
+  html += `<div class="card">
+    <div class="card-title">新闻数据源（真实红旗动态）</div>
+    <div class="field"><label>新闻代理地址（Cloudflare Worker）</label><input id="newsProxy" placeholder="https://xxx.workers.dev" /></div>
+    <p class="muted" style="font-size:12px">留空则显示示例内容。部署方法见 README：「接入真实新闻（Cloudflare Worker）」一节。</p>
+  </div>`;
   container.insertAdjacentHTML('beforeend', html);
 
   // 回填已保存的 gistId
   getSetting('syncGist', '').then((g) => { const el = container.querySelector('#syncGist'); if (g) el.value = g; });
+  // 回填并保存新闻代理地址
+  getSetting('newsProxy', '').then((g) => { const el = container.querySelector('#newsProxy'); if (g) el.value = g; });
+  const npEl = container.querySelector('#newsProxy');
+  if (npEl) npEl.addEventListener('change', async (e) => { await setSetting('newsProxy', e.target.value.trim()); toast('已保存新闻代理地址'); });
 
   container.querySelector('#syncBackup').addEventListener('click', async () => {
     const tk = container.querySelector('#syncToken').value.trim();
