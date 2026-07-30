@@ -56,6 +56,34 @@
   --down: #4a8c5e;
 }
 
+/* ===== 主题：马卡龙糖果 ===== */
+[data-theme="macaron"] {
+  --brand: #EF9FC0;
+  --brand-dark: #D985A8;
+  --brand-soft: #FCEAF2;
+  --bg: #F8F5FB;
+  --card: #FFFFFF;
+  --text: #55506A;
+  --muted: #A99FBE;
+  --line: #ECE7F4;
+  --up: #EF9FC0;
+  --down: #8FD0B0;
+}
+
+/* ===== 主题：莫兰迪（低饱和温柔） ===== */
+[data-theme="morandi"] {
+  --brand: #9B8FA3;
+  --brand-dark: #7A6F80;
+  --brand-soft: #EDEAEF;
+  --bg: #EDEAE6;
+  --card: #F7F5F2;
+  --text: #46434A;
+  --muted: #9A929C;
+  --line: #DEDAD8;
+  --up: #9B8FA3;
+  --down: #8B9A86;
+}
+
 /* 主题切换选择器 */
 .theme-grid { display: flex; gap: 10px; margin-top: 4px; }
 .theme-opt {
