@@ -30,6 +30,85 @@ function fuelStats(recs) {
   return { totalA, totalL, avg, cons, costKm, count: recs.length };
 }
 
+/* 纯 Canvas 画油价趋势折线图（不依赖任何外部库） */
+function drawFuelTrend(canvas, recs) {
+  const pts = recs
+    .filter((r) => r.pricePerL != null && !isNaN(parseFloat(r.pricePerL)))
+    .map((r) => ({ date: r.date, p: parseFloat(r.pricePerL) }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+  const hint = document.getElementById('fuelChartHint');
+  if (pts.length < 2) {
+    canvas.style.display = 'none';
+    if (hint) hint.textContent = '记录满 2 条后，这里显示每次加油的油价趋势。';
+    return;
+  }
+  if (hint) hint.textContent = '';
+  canvas.style.display = 'block';
+
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 320;
+  const cssH = 180;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const padL = 40, padR = 12, padT = 14, padB = 24;
+  const plotW = cssW - padL - padR;
+  const plotH = cssH - padT - padB;
+  let min = Math.min(...pts.map((p) => p.p));
+  let max = Math.max(...pts.map((p) => p.p));
+  if (min === max) { min -= 0.5; max += 0.5; }
+  const range = max - min;
+  const xAt = (i) => padL + (pts.length === 1 ? plotW / 2 : (plotW * i) / (pts.length - 1));
+  const yAt = (v) => padT + plotH - ((v - min) / range) * plotH;
+
+  // 网格 + Y 轴价格标签
+  ctx.strokeStyle = '#e5e5ea';
+  ctx.fillStyle = '#86868b';
+  ctx.font = '11px -apple-system, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  const rows = 4;
+  for (let i = 0; i <= rows; i++) {
+    const v = min + (range * i) / rows;
+    const yy = yAt(v);
+    ctx.beginPath();
+    ctx.moveTo(padL, yy);
+    ctx.lineTo(cssW - padR, yy);
+    ctx.stroke();
+    ctx.fillText(v.toFixed(2), padL - 6, yy);
+  }
+
+  // X 轴日期标签（首 / 中 / 尾）
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const labelIdx = [0, Math.floor((pts.length - 1) / 2), pts.length - 1];
+  labelIdx.forEach((i) => {
+    ctx.fillText(pts[i].date.slice(5), xAt(i), cssH - padB + 6);
+  });
+
+  // 折线
+  ctx.strokeStyle = '#C8102E';
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const xx = xAt(i), yy = yAt(p.p);
+    if (i === 0) ctx.moveTo(xx, yy); else ctx.lineTo(xx, yy);
+  });
+  ctx.stroke();
+
+  // 数据点
+  ctx.fillStyle = '#C8102E';
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(xAt(i), yAt(p.p), 3, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
 async function renderFuel(container) {
   const recs = await getCarRecords();
   const st = fuelStats(recs);
@@ -47,6 +126,9 @@ async function renderFuel(container) {
     html += `<div class="stat"><div class="v muted" style="font-size:14px">未填里程</div><div class="k">油耗（填里程表启用）</div></div>`;
   }
   html += '</div>';
+
+  // 油价趋势图
+  html += '<div class="card" style="margin-top:12px"><div class="card-title">油价趋势（每次加油单价）</div><canvas id="fuelChart" class="trend-canvas"></canvas><div class="muted" id="fuelChartHint" style="font-size:12px;margin-top:6px"></div></div>';
 
   html += '<button class="btn" id="addFuelBtn" style="margin:14px 0">+ 添加加油记录</button>';
 
@@ -68,6 +150,10 @@ async function renderFuel(container) {
   }
   container.innerHTML = html;
 
+  // 趋势图
+  const chartCanvas = container.querySelector('#fuelChart');
+  if (chartCanvas) drawFuelTrend(chartCanvas, recs);
+
   container.querySelector('#addFuelBtn').addEventListener('click', openFuelForm);
 
   container.querySelectorAll('[data-del]').forEach((b) => {
@@ -78,6 +164,7 @@ async function renderFuel(container) {
       toast('已删除');
     });
   });
+
 }
 
 function openFuelForm() {
