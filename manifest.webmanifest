@@ -1,7 +1,7 @@
 {
   "name": "我的红旗 · 汽车记录工作台",
   "short_name": "我的红旗",
-  "description": "安卓端汽车记录工作台：加油记录、油价查询、汽车新闻（含红旗专属频道）",
+  "description": "安卓端汽车记录工作台：加油记录、油价查询、多车管理",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
