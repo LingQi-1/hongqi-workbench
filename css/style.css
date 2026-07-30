@@ -14,6 +14,57 @@
   --maxw: 480px;
 }
 
+/* ===== 主题：红旗金 ===== */
+[data-theme="gold"] {
+  --brand: #B8860B;
+  --brand-dark: #8a6508;
+  --brand-soft: #fbf3df;
+  --bg: #faf7f0;
+  --card: #ffffff;
+  --text: #2b2410;
+  --muted: #9a8f6f;
+  --line: #e8e0cc;
+  --up: #B8860B;
+  --down: #2e8b57;
+}
+
+/* ===== 主题：暗黑模式 ===== */
+[data-theme="dark"] {
+  --brand: #C8102E;
+  --brand-dark: #9e0c24;
+  --brand-soft: #2a1418;
+  --bg: #000000;
+  --card: #1c1c1e;
+  --text: #f2f2f7;
+  --muted: #98989d;
+  --line: #38383a;
+  --up: #ff453a;
+  --down: #30d158;
+}
+
+/* 主题切换选择器 */
+.theme-grid { display: flex; gap: 10px; margin-top: 4px; }
+.theme-opt {
+  flex: 1;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 6px 10px;
+  text-align: center;
+  cursor: pointer;
+  background: var(--card);
+  transition: border-color .15s, transform .1s;
+}
+.theme-opt:active { transform: scale(.97); }
+.theme-opt.active { border-color: var(--brand); }
+.theme-swatch {
+  width: 34px; height: 34px; border-radius: 50%;
+  margin: 0 auto 8px; border: 2px solid rgba(255,255,255,.25);
+  box-shadow: 0 1px 4px rgba(0,0,0,.25);
+}
+.theme-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.theme-opt.active .theme-name { color: var(--brand); }
+
+
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
