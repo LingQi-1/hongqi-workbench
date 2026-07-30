@@ -1,7 +1,7 @@
 /* IndexedDB wrapper + shared helpers for 我的红旗 PWA */
 
 const DB_NAME = 'wohongqi';
-const DB_VER = 1;
+const DB_VER = 2;
 let _db = null;
 
 function openDB() {
@@ -17,6 +17,7 @@ function openDB() {
         s.createIndex('date', 'date', { unique: false });
       }
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+      if (!db.objectStoreNames.contains('reminders')) db.createObjectStore('reminders', { keyPath: 'id' });
     };
     req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
     req.onerror = (e) => reject(e.target.error);
