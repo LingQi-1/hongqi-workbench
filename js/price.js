@@ -210,6 +210,9 @@ async function renderPrice(container) {
     container.querySelector('#calPrev').addEventListener('click', () => { priceMonth.setMonth(priceMonth.getMonth() - 1); renderPrice(container); });
     container.querySelector('#calNext').addEventListener('click', () => { priceMonth.setMonth(priceMonth.getMonth() + 1); renderPrice(container); });
   }
+
+  // 附近加油站地图（免费方案，无需密钥）
+  if (typeof renderNearbyStations === 'function') renderNearbyStations(container);
 }
 
 function bindPriceControls(container) {
