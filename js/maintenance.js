@@ -157,6 +157,15 @@ async function renderMaintenance(container) {
   let reminders = [];
   try { reminders = await dbGetAll('reminders'); }
   catch (e) { reminders = []; /* 仓储异常时显示空列表而非白屏 */ }
+
+  // 自愈：列表为空且从未 seed 过时，补填充默认保养项（解决手机端空白问题）
+  if (reminders.length === 0) {
+    try {
+      await seedRemindersIfNeeded();
+      reminders = await dbGetAll('reminders').catch(() => []);
+    } catch (e) { /* 忽略，显示空态 */ }
+  }
+
   const latestOdo = await getLatestOdometer();
 
   let html = '<h2>保养提醒</h2>';
