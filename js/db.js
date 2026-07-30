@@ -16,7 +16,6 @@ function openDB() {
         s.createIndex('carId', 'carId', { unique: false });
         s.createIndex('date', 'date', { unique: false });
       }
-      if (!db.objectStoreNames.contains('news')) db.createObjectStore('news', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
     };
     req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
