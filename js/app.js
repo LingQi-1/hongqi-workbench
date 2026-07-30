@@ -61,7 +61,7 @@ async function renderCompanionshipCard(container) {
   const c = computeCompanionship(car, recs);
   const card = document.createElement('div');
   card.className = 'card';
-  card.style.cssText = 'background:linear-gradient(135deg, #B42334 0%, #8e1a28 100%);color:#fff;border:none;overflow:hidden;position:relative';
+  card.style.cssText = 'background:linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);color:#fff;border:none;overflow:hidden;position:relative';
 
   const emojis = ['❤️', '🌟', '✨', '🔥', '💪', '🏆'];
   const emoji = emojis[Math.min((c.st.count || 1) - 1, emojis.length - 1)] || '🚗';
@@ -145,7 +145,7 @@ async function renderCompanionshipBanner() {
   const c = computeCompanionship(car, recs);
   const banner = document.createElement('div');
   banner.className = 'companionship-banner';
-  banner.style.cssText = 'background:linear-gradient(135deg,#B42334,#8e1a28);color:#fff;border-radius:14px;padding:13px 16px;margin-bottom:12px;position:relative;overflow:hidden;cursor:pointer';
+  banner.style.cssText = 'background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-radius:14px;padding:13px 16px;margin-bottom:12px;position:relative;overflow:hidden;cursor:pointer';
   if (c.days == null && c.km == null && c.st.count === 0) {
     banner.innerHTML = `<div style="font-size:14px;font-weight:600">🚗 ${escapeHtml(c.carName)}</div><div style="font-size:12px;opacity:.85;margin-top:4px">点此编辑爱车档案，记录你们的旅程 →</div>`;
   } else {
@@ -162,7 +162,7 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.2';
+const APP_VERSION = '2.0.3';
 const APP_BUILD_DATE = '2026-07-30';
 
 async function renderMe(container) {
@@ -218,7 +218,7 @@ async function init() {
   const theme = await getSetting('theme', 'classic-red');
   applyTheme(theme);
   await ensureDefaultCar();
-  seedRemindersIfNeeded().catch(() => {}); // 首次填充默认保养提醒，避免模块空白
+  try { await seedRemindersIfNeeded(); } catch (e) { /* 忽略 seed 失败，renderMaintenance 会自愈 */ }
   const car = await getCurrentCar();
   $('#carChip').textContent = car ? car.name : '我的红旗';
   bindUI();
@@ -245,7 +245,7 @@ function applyTheme(theme) {
   else root.setAttribute('data-theme', theme);
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    const colors = { dark: '#0f0f10', gold: '#A0780A', warm: '#f5efe7' };
+    const colors = { dark: '#0f0f10', gold: '#A0780A', warm: '#f5efe7', macaron: '#EF9FC0', morandi: '#9B8FA3' };
     meta.setAttribute('content', colors[theme] || '#B42334');
   }
 }
@@ -255,6 +255,8 @@ const THEMES = [
   { key: 'gold', name: '红旗金', colors: ['#A0780A', '#f7f3e8'] },
   { key: 'dark', name: '暗黑护眼', colors: ['#1a1a1d', '#0f0f10'] },
   { key: 'warm', name: '暖色护眼', colors: ['#9e7a55', '#f5efe7'] },
+  { key: 'macaron', name: '马卡龙糖果', colors: ['#EF9FC0', '#F8F5FB'] },
+  { key: 'morandi', name: '莫兰迪', colors: ['#9B8FA3', '#EDEAE6'] },
 ];
 
 function renderThemeSection(container) {
