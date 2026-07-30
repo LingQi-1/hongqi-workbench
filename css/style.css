@@ -1,13 +1,13 @@
 :root {
-  --brand: #C8102E;
-  --brand-dark: #9e0c24;
-  --brand-soft: #fbeaed;
-  --bg: #f5f5f7;
+  --brand: #B42334;
+  --brand-dark: #8e1a28;
+  --brand-soft: #f7eeef;
+  --bg: #f0f0f2;
   --card: #ffffff;
   --text: #1c1c1e;
-  --muted: #86868b;
-  --line: #e5e5ea;
-  --up: #C8102E;
+  --muted: #8e8e93;
+  --line: #e0e0e4;
+  --up: #B42334;
   --down: #16a34a;
   --tab-h: 58px;
   --top-h: 52px;
@@ -16,30 +16,44 @@
 
 /* ===== 主题：红旗金 ===== */
 [data-theme="gold"] {
-  --brand: #B8860B;
-  --brand-dark: #8a6508;
-  --brand-soft: #fbf3df;
-  --bg: #faf7f0;
+  --brand: #A0780A;
+  --brand-dark: #7a5b08;
+  --brand-soft: #f8f2e4;
+  --bg: #f7f3e8;
   --card: #ffffff;
   --text: #2b2410;
-  --muted: #9a8f6f;
-  --line: #e8e0cc;
-  --up: #B8860B;
+  --muted: #8a8060;
+  --line: #e2dab8;
+  --up: #A0780A;
   --down: #2e8b57;
 }
 
-/* ===== 主题：暗黑模式 ===== */
+/* ===== 主题：暗黑模式（低蓝光护眼） ===== */
 [data-theme="dark"] {
-  --brand: #C8102E;
-  --brand-dark: #9e0c24;
-  --brand-soft: #2a1418;
-  --bg: #000000;
-  --card: #1c1c1e;
-  --text: #f2f2f7;
-  --muted: #98989d;
-  --line: #38383a;
-  --up: #ff453a;
+  --brand: #c43c54;
+  --brand-dark: #a03048;
+  --brand-soft: #251a1c;
+  --bg: #0f0f10;
+  --card: #1a1a1d;
+  --text: #e5e5ea;
+  --muted: #8e8e93;
+  --line: #2c2c2e;
+  --up: #ff6961;
   --down: #30d158;
+}
+
+/* ===== 主题：护眼米色 ===== */
+[data-theme="warm"] {
+  --brand: #9e7a55;
+  --brand-dark: #7d6144;
+  --brand-soft: #f5ede3;
+  --bg: #f5efe7;
+  --card: #fffdf8;
+  --text: #3d3428;
+  --muted: #9a9080;
+  --line: #e2dad0;
+  --up: #9e7a55;
+  --down: #4a8c5e;
 }
 
 /* 主题切换选择器 */
@@ -339,6 +353,8 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 500; }
   animation: up .2s ease;
 }
 @keyframes up { from { transform: translateY(100%);} to { transform: translateY(0);} }
+@keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .sheet-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 8px 0 12px; font-size: 17px; font-weight: 600;
