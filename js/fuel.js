@@ -8,22 +8,13 @@ async function getCarRecords() {
   return all.filter((r) => r.carId === id).sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
-function deriveFuel(L, A, P) {
-  // 任填其二，推导第三
-  L = parseFloat(L); A = parseFloat(A); P = parseFloat(P);
-  if (isNaN(L) && !isNaN(A) && !isNaN(P) && P !== 0) return { field: 'L', val: +(A / P).toFixed(2) };
-  if (isNaN(A) && !isNaN(L) && !isNaN(P)) return { field: 'A', val: +(L * P).toFixed(2) };
-  if (isNaN(P) && !isNaN(L) && !isNaN(A) && L !== 0) return { field: 'P', val: +(A / L).toFixed(2) };
-  return null;
-}
-
 function fuelStats(recs) {
   let totalA = 0, totalL = 0;
-  const withOdo = recs.filter((r) => r.odometer != null && r.odometer !== '').map((r) => ({ ...r, odo: parseFloat(r.odometer) })).sort((a, b) => (a.date < b.date ? -1 : 1));
-  for (const r of recs) { totalA += parseFloat(r.amount) || 0; totalL += parseFloat(r.liters) || 0; }
-  const avg = totalL ? totalA / totalL : 0;
+  const withOdo = recs.filter((r) => r.odometer != null && r.odometer !== '' && !isNaN(parseFloat(r.odometer))).map((r) => ({ ...r, odo: parseFloat(r.odometer) })).sort((a, b) => (a.date < b.date ? -1 : 1));
+  for (const r of recs) { totalA += parseFloat(r.amount) || 0; const l = parseFloat(r.liters); if (!isNaN(l)) totalL += l; }
+  const avg = totalL > 0 ? totalA / totalL : null;
   let cons = null, costKm = null;
-  if (withOdo.length >= 2) {
+  if (withOdo.length >= 2 && totalL > 0) {
     const km = withOdo[withOdo.length - 1].odo - withOdo[0].odo;
     if (km > 0) { cons = (totalL / km) * 100; costKm = totalA / km; }
   }
@@ -118,7 +109,7 @@ async function renderFuel(container) {
   html += '<div class="stats">';
   html += `<div class="stat"><div class="v brand">¥${fmtMoney(st.totalA)}</div><div class="k">累计花费（${st.count}次）</div></div>`;
   html += `<div class="stat"><div class="v">${st.totalL.toFixed(1)} L</div><div class="k">累计加油量</div></div>`;
-  html += `<div class="stat"><div class="v">¥${st.avg.toFixed(2)}</div><div class="k">加权平均油价</div></div>`;
+  html += `<div class="stat"><div class="v">${st.avg != null ? '¥' + st.avg.toFixed(2) : '—'}</div><div class="k">加权平均油价</div></div>`;
   if (st.cons != null) {
     html += `<div class="stat"><div class="v">${st.cons.toFixed(2)}</div><div class="k">百公里油耗 L</div></div>`;
     html += `<div class="stat"><div class="v">¥${st.costKm.toFixed(2)}</div><div class="k">每公里成本</div></div>`;
@@ -126,9 +117,6 @@ async function renderFuel(container) {
     html += `<div class="stat"><div class="v muted" style="font-size:14px">未填里程</div><div class="k">油耗（填里程表启用）</div></div>`;
   }
   html += '</div>';
-
-  // 油价趋势图
-  html += '<div class="card" style="margin-top:12px"><div class="card-title">油价趋势（每次加油单价）</div><canvas id="fuelChart" class="trend-canvas"></canvas><div class="muted" id="fuelChartHint" style="font-size:12px;margin-top:6px"></div></div>';
 
   html += '<button class="btn" id="addFuelBtn" style="margin:14px 0">+ 添加加油记录</button>';
 
@@ -141,13 +129,16 @@ async function renderFuel(container) {
       html += `<div class="item">
         <div class="main">
           <div class="t1">${escapeHtml(r.grade)} · ${fmtMoney(r.amount)} 元</div>
-          <div class="t2">${r.date} · ${parseFloat(r.liters).toFixed(2)} L · ¥${parseFloat(r.pricePerL).toFixed(2)}/L${r.odometer ? ' · 里程 ' + escapeHtml(r.odometer) + ' km' : ''}</div>
+          <div class="t2">${r.date} · ${(r.liters != null && !isNaN(parseFloat(r.liters))) ? parseFloat(r.liters).toFixed(2) + ' L' : '— L'} · ${(r.pricePerL != null && !isNaN(parseFloat(r.pricePerL))) ? '¥' + parseFloat(r.pricePerL).toFixed(2) + '/L' : '— /L'}${r.odometer ? ' · 里程 ' + escapeHtml(r.odometer) + ' km' : ''}</div>
         </div>
         <span class="item del" data-del="${r.id}">&times;</span>
       </div>`;
     }
     html += '</div>';
   }
+  // 油价趋势图（放在加油记录列表下方）
+  html += '<div class="card" style="margin-top:12px"><div class="card-title">油价趋势（每次加油单价）</div><canvas id="fuelChart" class="trend-canvas"></canvas><div class="muted" id="fuelChartHint" style="font-size:12px;margin-top:6px"></div></div>';
+
   container.innerHTML = html;
 
   // 趋势图
@@ -174,6 +165,12 @@ function openFuelForm() {
     <div class="field">
       <label>加油日期（默认今天，可改任意日期补记）</label>
       <input type="date" id="f_date" value="${todayStr()}" />
+      <div class="date-chips">
+        <button type="button" class="chip" data-d="0">今天</button>
+        <button type="button" class="chip" data-d="-1">昨天</button>
+        <button type="button" class="chip" data-d="-7">上周</button>
+        <button type="button" class="chip" data-d="-30">上月</button>
+      </div>
     </div>
     <div class="row2">
       <div class="field"><label>加多少 L</label><input type="number" id="f_l" inputmode="decimal" placeholder="升数" /></div>
@@ -191,36 +188,72 @@ function openFuelForm() {
       <label>里程表读数（可选，填了启用油耗统计）km</label>
       <input type="number" id="f_odo" inputmode="decimal" placeholder="如 12345，可不填" />
     </div>
-    <p class="muted" style="font-size:12px;margin:-4px 0 12px">提示：金额 / 升数 / 单价 任意填两项，第三项自动算出。</p>
+    <p class="muted" style="font-size:12px;margin:-4px 0 12px">提示：金额必填；升数 / 单价 任意填一项，另一项自动算出（也可都不填，只记金额）。</p>
   `;
   openSheet('添加加油记录', wrap);
 
   const L = wrap.querySelector('#f_l'), A = wrap.querySelector('#f_a'), P = wrap.querySelector('#f_p');
-  function autoDerive() {
-    const d = deriveFuel(L.value, A.value, P.value);
-    if (!d) return;
-    if (d.field === 'L' && !L.value) L.value = d.val;
-    if (d.field === 'A' && !A.value) A.value = d.val;
-    if (d.field === 'P' && !P.value) P.value = d.val;
+  let derivedField = null; // 当前由系统自动算出的那一项的 id
+  function autoDerive(changed) {
+    const lv = L.value.trim(), av = A.value.trim(), pv = P.value.trim();
+    const lN = parseFloat(lv), aN = parseFloat(av), pN = parseFloat(pv);
+    // 用户正在清空某字段 → 同时清掉旧的系统推导值，彻底解除“锁死”，可自由改任意项
+    if (changed) {
+      const cleared = changed === L ? lv === '' : changed === A ? av === '' : pv === '';
+      if (cleared) {
+        if (derivedField && derivedField !== changed.getAttribute('id')) {
+          (derivedField === 'f_l' ? L : derivedField === 'f_a' ? A : P).value = '';
+        }
+        derivedField = null;
+        return;
+      }
+      if (changed.getAttribute('id') === derivedField) derivedField = null; // 用户改了推导项本身
+    }
+    const empties = [];
+    if (lv === '' || isNaN(lN)) empties.push('L');
+    if (av === '' || isNaN(aN)) empties.push('A');
+    if (pv === '' || isNaN(pN)) empties.push('P');
+    if (empties.length !== 1) { derivedField = null; return; } // 不是“恰好两项已填”就不推导
+    const e = empties[0];
+    let val = null;
+    if (e === 'L' && !isNaN(aN) && !isNaN(pN) && pN !== 0) val = aN / pN;       // 升数 = 金额 / 单价
+    if (e === 'A' && !isNaN(lN) && !isNaN(pN)) val = lN * pN;                   // 金额 = 升数 × 单价
+    if (e === 'P' && !isNaN(lN) && !isNaN(aN) && lN !== 0) val = aN / lN;       // 单价 = 金额 / 升数
+    if (val == null || !isFinite(val)) { derivedField = null; return; }
+    const target = e === 'L' ? L : e === 'A' ? A : P;
+    target.value = (Math.round(val * 100) / 100).toString();
+    derivedField = target.getAttribute('id');
   }
-  [L, A, P].forEach((i) => i.addEventListener('input', autoDerive));
+  [L, A, P].forEach((i) => i.addEventListener('input', () => autoDerive(i)));
+  // 日期快捷选择
+  wrap.querySelectorAll('.date-chips .chip').forEach((c) => {
+    c.addEventListener('click', () => {
+      const off = parseInt(c.getAttribute('data-d'), 10);
+      const d = new Date();
+      d.setDate(d.getDate() + off);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      wrap.querySelector('#f_date').value = `${y}-${m}-${day}`;
+    });
+  });
 
   const save = document.createElement('button');
   save.className = 'btn';
   save.textContent = '保存';
   save.onclick = async () => {
     const date = wrap.querySelector('#f_date').value || todayStr();
-    const liters = parseFloat(L.value);
     const amount = parseFloat(A.value);
+    if (!amount || amount <= 0) { toast('请至少填写加油金额'); return; }
+    const liters = parseFloat(L.value);
     const pricePerL = parseFloat(P.value);
-    if (!liters || !amount || !pricePerL) { toast('请填写升数、金额、单价（可自动推导）'); return; }
     const rec = {
       id: uid(),
       carId: await getCurrentCarId(),
       date,
-      liters,
+      liters: isNaN(liters) ? null : liters,
       amount,
-      pricePerL,
+      pricePerL: isNaN(pricePerL) ? null : pricePerL,
       grade: wrap.querySelector('#f_grade').value,
       odometer: wrap.querySelector('#f_odo').value || null,
       createdAt: Date.now()
