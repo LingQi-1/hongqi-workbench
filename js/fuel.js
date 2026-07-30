@@ -5,7 +5,24 @@ const GRADES = ['92号', '95号', '98号', '爱跑98', '0号柴油'];
 async function getCarRecords() {
   const id = await getCurrentCarId();
   const all = await dbGetAll('records');
-  return all.filter((r) => r.carId === id).sort((a, b) => (a.date < b.date ? 1 : -1));
+  let recs = all.filter((r) => r.carId === id).sort((a, b) => (a.date < b.date ? 1 : -1));
+  // 自动修正明显异常的油价数据（如之前bug导致的¥100/L等）
+  let fixed = false;
+  for (const r of recs) {
+    const a = parseFloat(r.amount), l = parseFloat(r.liters), p = parseFloat(r.pricePerL);
+    if (!isNaN(a) && a > 0 && !isNaN(l) && l > 0) {
+      const correctP = a / l;
+      // 如果存储的单价偏差超过±30%或明显异常(>50或<3)，自动修正
+      if (isNaN(p) || Math.abs(p - correctP) / correctP > 0.3 || p > 50 || p < 3) {
+        r.pricePerL = Math.round(correctP * 100) / 100;
+        fixed = true;
+        // 同步回数据库
+        dbPut('records', { ...r }).catch(() => {});
+      }
+    }
+  }
+  if (fixed) console.log('[红旗] 已自动修正异常油价数据');
+  return recs;
 }
 
 function fuelStats(recs) {
@@ -81,7 +98,7 @@ function drawFuelTrend(canvas, recs) {
   });
 
   // 折线
-  ctx.strokeStyle = '#C8102E';
+  ctx.strokeStyle = '#B42334';
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
@@ -92,7 +109,7 @@ function drawFuelTrend(canvas, recs) {
   ctx.stroke();
 
   // 数据点
-  ctx.fillStyle = '#C8102E';
+  ctx.fillStyle = '#B42334';
   pts.forEach((p, i) => {
     ctx.beginPath();
     ctx.arc(xAt(i), yAt(p.p), 3, 0, Math.PI * 2);
