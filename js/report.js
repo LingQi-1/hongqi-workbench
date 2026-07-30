@@ -62,8 +62,8 @@ async function renderReport(container) {
   // === 操作按钮 ===
   html += `<button class="btn" id="genShareBtn" style="margin:8px 0">📸 生成分享图片</button>`;
 
-  // === 分享图容器（Canvas）===
-  html += '<div id="shareCardWrap" style="display:none"><div class="card-title" style="margin-top:14px">预览（长按保存）</div><canvas id="shareCard" style="width:100%;border-radius:12px"></canvas></div>';
+  // === 分享图容器（Canvas → 可保存图片）===
+  html += '<div id="shareCardWrap" style="display:none"><div class="card-title" style="margin-top:14px">预览（点击或长按可保存）</div><div id="shareCardImgWrap" style="width:100%;border-radius:12px;overflow:hidden;background:#C8102E"></div><canvas id="shareCard" style="display:none"></canvas><button class="btn light sm" id="saveShareBtn" style="margin-top:8px;width:auto;display:none">💾 保存到相册</button></div>';
 
   container.innerHTML = html;
 
@@ -94,8 +94,8 @@ function renderShareCard(container, recs, st, car) {
 
   // ===== 背景 =====
   const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-  bgGrad.addColorStop(0, '#C8102E');
-  bgGrad.addColorStop(1, '#8B0A1E');
+  bgGrad.addColorStop(0, '#B42334');
+  bgGrad.addColorStop(1, '#8e1a28');
   ctx.fillStyle = bgGrad;
   roundRect(ctx, 0, 0, W, H, 20);
   ctx.fill();
@@ -206,6 +206,26 @@ function renderShareCard(container, recs, st, car) {
   ctx.font = '11px -apple-system, sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('— 我的红旗 工作台 —', W / 2, H - 18);
+
+  // ===== 将 Canvas 转为可保存的图片 =====
+  const imgWrap = document.querySelector('#shareCardImgWrap');
+  const saveBtn = document.querySelector('#saveShareBtn');
+  try {
+    const dataUrl = canvas.toDataURL('image/png');
+    imgWrap.innerHTML = `<img src="${dataUrl}" style="width:100%;display:block;border-radius:12px" alt="养车报表分享图" />`;
+    saveBtn.style.display = '';
+    saveBtn.onclick = () => {
+      const link = document.createElement('a');
+      link.download = `我的红旗-养车报表-${new Date().toISOString().slice(0,10)}.png`;
+      link.href = dataUrl;
+      link.click();
+      toast('图片已保存，请在相册查看');
+    };
+  } catch (e) {
+    // 如果 toDataURL 失败（如跨域等），回退显示 canvas
+    canvas.style.display = 'block';
+    console.warn('分享图转换失败:', e);
+  }
 
   // 滚动到分享图位置
   wrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
