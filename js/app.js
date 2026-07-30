@@ -9,79 +9,160 @@ const TABS = {
 };
 let currentTab = 'fuel';
 
-/* ===== 爱车陪伴卡片（情绪价值） ===== */
+/* ===== 爱车陪伴（情绪价值） ===== */
+/* 计算陪伴数据：优先用「爱车档案」手动填写的 提车日期/总里程，加油记录作兜底 */
+function computeCompanionship(car, recs) {
+  const buyDate = car && car.buyDate ? car.buyDate : null;
+  const totalKmRaw = car && car.totalKm != null ? parseFloat(car.totalKm) : null;
+
+  // 相伴天数
+  let days = null, daysFrom = '';
+  if (buyDate) {
+    days = Math.max(0, Math.floor((Date.now() - new Date(buyDate).getTime()) / 86400000));
+    daysFrom = '提车';
+  } else if (recs.length > 0) {
+    const firstDate = recs[recs.length - 1].date;
+    days = Math.max(1, Math.floor((Date.now() - new Date(firstDate).getTime()) / 86400000));
+    daysFrom = '首条加油记录';
+  }
+
+  // 同行公里
+  let km = null, kmFrom = '';
+  if (totalKmRaw != null && !isNaN(totalKmRaw)) {
+    km = totalKmRaw; kmFrom = '手动填写';
+  } else {
+    const w = recs.filter((r) => r.odometer != null && r.odometer !== '' && !isNaN(parseFloat(r.odometer)))
+      .map((r) => ({ ...r, odo: parseFloat(r.odometer) })).sort((a, b) => (a.date < b.date ? -1 : 1));
+    if (w.length >= 2) { km = Math.max(0, w[w.length - 1].odo - w[0].odo); kmFrom = '加油记录推算'; }
+  }
+
+  return { days, daysFrom, km, kmFrom, st: fuelStats(recs), carName: car ? car.name : '我的红旗' };
+}
+
+function buildWarmLines(c) {
+  const lines = [];
+  if (c.days != null) {
+    if (c.days >= 365) lines.push(`🎂 你们已经相伴 ${Math.floor(c.days / 365)} 年零 ${c.days % 365} 天了`);
+    else if (c.days >= 30) lines.push(`💕 你们已经相伴 ${c.days} 天了`);
+    else lines.push(`🌱 刚刚开启旅程，第 ${c.days} 天`);
+  }
+  if (c.km != null) {
+    lines.push(c.km >= 10000 ? `🛣️ 一同走过 ${(c.km / 10000).toFixed(1)} 万公里` : `🛣️ 一同走过 ${c.km.toFixed(0)} 公里`);
+  }
+  if (c.st.count >= 10) lines.push(`⛽ 为它加油 ${c.st.count} 次，每次都是满满的爱`);
+  else if (c.st.count > 0) lines.push(`⛽ 已记录 ${c.st.count} 次加油`);
+  if (lines.length === 0) lines.push('点「编辑爱车档案」，记录提车日期与里程，开启你们的专属故事 💝');
+  return lines;
+}
+
 async function renderCompanionshipCard(container) {
   const car = await getCurrentCar();
   const recs = await getCarRecords();
+  const c = computeCompanionship(car, recs);
   const card = document.createElement('div');
   card.className = 'card';
   card.style.cssText = 'background:linear-gradient(135deg, #B42334 0%, #8e1a28 100%);color:#fff;border:none;overflow:hidden;position:relative';
 
-  if (recs.length === 0) {
+  const emojis = ['❤️', '🌟', '✨', '🔥', '💪', '🏆'];
+  const emoji = emojis[Math.min((c.st.count || 1) - 1, emojis.length - 1)] || '🚗';
+  const warm = buildWarmLines(c);
+
+  if (c.days == null && c.km == null && c.st.count === 0) {
     card.innerHTML = `
       <div style="position:absolute;top:-20px;right:-10px;font-size:60px;opacity:.15">🚗</div>
       <div style="font-size:15px;font-weight:600">欢迎来到「我的红旗」</div>
-      <div style="font-size:12px;opacity:.8;margin-top:4px">添加第一条加油记录，开启你和爱车的记录之旅 🎉</div>`;
+      <div style="font-size:12px;opacity:.85;margin-top:4px">点下方「编辑爱车档案」，记录提车日期与里程，开启你和爱车的记录之旅 🎉</div>
+      <button id="editProfileBtn" class="btn" style="margin-top:12px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35)">✏️ 编辑爱车档案</button>`;
   } else {
-    const firstDate = recs[recs.length - 1].date; // 最早的一条
-    const daysSinceFirst = Math.max(1, Math.floor((Date.now() - new Date(firstDate).getTime()) / 86400000));
-    const st = fuelStats(recs);
-
-    // 计算里程
-    const withOdo = recs.filter((r) => r.odometer != null && r.odometer !== '' && !isNaN(parseFloat(r.odometer))).map((r) => ({ ...r, odo: parseFloat(r.odometer) })).sort((a, b) => (a.date < b.date ? -1 : 1));
-    let totalKm = 0;
-    if (withOdo.length >= 2) {
-      totalKm = Math.max(0, withOdo[withOdo.length - 1].odo - withOdo[0].odo);
-    }
-
-    // 暖心文案生成
-    const warmMessages = [];
-    if (daysSinceFirst >= 365) warmMessages.push(`🎂 你们已经相伴 ${Math.floor(daysSinceFirst / 365)} 年零 ${(daysSinceFirst % 365)} 天了`);
-    else if (daysSinceFirst >= 30) warmMessages.push(`💕 你们已经相伴 ${daysSinceFirst} 天了`);
-    else warmMessages.push(`🌱 刚刚开始你们的旅程，第 ${daysSinceFirst} 天`);
-    if (totalKm > 0) {
-      if (totalKm >= 10000) warmMessages.push(`🛣️ 一同走过 ${(totalKm / 10000).toFixed(1)} 万公里`);
-      else warmMessages.push(`🛣️ 一同走过 ${totalKm.toFixed(0)} 公里`);
-    }
-    if (st.count >= 10) warmMessages.push(`⛽ 为它加油 ${st.count} 次，每次都是满满的爱`);
-    else if (st.count > 0) warmMessages.push(`⛽ 已记录 ${st.count} 次加油`);
-
-    // 根据数据量选一个emoji装饰
-    const emojis = ['❤️', '🌟', '✨', '🔥', '💪', '🏆'];
-    const emoji = emojis[Math.min(recs.length - 1, emojis.length - 1)] || '🚗';
-
+    const kmDisp = c.km != null ? (c.km >= 10000 ? (c.km / 10000).toFixed(1) + '万' : c.km.toFixed(0)) : '—';
+    const dayDisp = c.days != null ? c.days : '—';
     card.innerHTML = `
       <div style="position:absolute;top:-15px;right:-10px;font-size:55px;opacity:.12">${emoji}</div>
       <div style="font-size:14px;font-weight:600;display:flex;align-items:center;gap:6px">
-        <span>${car ? escapeHtml(car.name) : '我的红旗'}</span>
+        <span>${escapeHtml(c.carName)}</span>
         <span style="font-size:11px;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:999px">爱车档案</span>
       </div>
       <div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:22px;font-weight:700">${daysSinceFirst}</div>
-          <div style="font-size:11px;opacity:.75">相伴天数</div>
+          <div style="font-size:22px;font-weight:700">${dayDisp}</div>
+          <div style="font-size:11px;opacity:.75">相伴天数${c.daysFrom ? '（' + c.daysFrom + '）' : ''}</div>
         </div>
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:22px;font-weight:700">${totalKm >= 10000 ? (totalKm/10000).toFixed(1)+'万' : (totalKm > 0 ? totalKm.toFixed(0) : '—')}</div>
-          <div style="font-size:11px;opacity:.75">同行公里</div>
+          <div style="font-size:22px;font-weight:700">${kmDisp}</div>
+          <div style="font-size:11px;opacity:.75">同行公里${c.kmFrom ? '（' + c.kmFrom + '）' : ''}</div>
         </div>
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:22px;font-weight:700">${st.count}</div>
+          <div style="font-size:22px;font-weight:700">${c.st.count}</div>
           <div style="font-size:11px;opacity:.75">加油次数</div>
         </div>
         <div style="background:rgba(255,255,255,.12);border-radius:10px;padding:10px;text-align:center">
-          <div style="font-size:22px;font-weight:700">¥${fmtMoney(st.totalA)}</div>
+          <div style="font-size:22px;font-weight:700">¥${fmtMoney(c.st.totalA)}</div>
           <div style="font-size:11px;opacity:.75">累计花费</div>
         </div>
       </div>
-      <div style="margin-top:10px;font-size:12.5px;opacity:.9;line-height:1.7">${warmMessages.join('<br>')}</div>`;
+      <div style="margin-top:10px;font-size:12.5px;opacity:.9;line-height:1.7">${warm.join('<br>')}</div>
+      <button id="editProfileBtn" class="btn" style="margin-top:12px;background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35)">✏️ 编辑爱车档案</button>`;
   }
 
   container.appendChild(card);
+  const eb = card.querySelector('#editProfileBtn');
+  if (eb) eb.addEventListener('click', openCarProfileForm);
+}
+
+/* 编辑爱车档案（昵称 / 提车日期 / 行驶总里程），存回 car 对象，不依赖加油记录 */
+async function openCarProfileForm() {
+  const car = await getCurrentCar();
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <div class="field"><label>爱车昵称</label><input id="p_name" value="${escapeHtml(car.name || '')}" placeholder="如：我的红旗 H9" /></div>
+    <div class="field"><label>提车日期（用于计算「相伴天数」）</label><input type="date" id="p_buy" value="${car.buyDate || ''}" max="${todayStr()}" /></div>
+    <div class="field"><label>行驶总里程 km（用于计算「同行公里」，可不填）</label><input type="number" id="p_km" inputmode="decimal" value="${car.totalKm != null ? car.totalKm : ''}" placeholder="如 30000，可不填" /></div>
+    <p class="muted" style="font-size:12px;margin:2px 0 12px">提车日期和总里程为<b>手动填写，不依赖加油记录</b>。留空则自动用加油记录推算。</p>
+  `;
+  openSheet('编辑爱车档案', wrap);
+  const save = document.createElement('button');
+  save.className = 'btn';
+  save.textContent = '保存';
+  save.onclick = async () => {
+    const name = wrap.querySelector('#p_name').value.trim() || '我的红旗';
+    const buyDate = wrap.querySelector('#p_buy').value || null;
+    const kmRaw = wrap.querySelector('#p_km').value.trim();
+    const totalKm = kmRaw === '' ? null : (parseFloat(kmRaw) || null);
+    const updated = { ...car, name, buyDate, totalKm };
+    await dbPut('cars', updated);
+    if (await getCurrentCarId() === car.id) { const chip = $('#carChip'); if (chip) chip.textContent = name; }
+    closeSheet();
+    await refreshView();
+    toast('已保存爱车档案');
+  };
+  wrap.appendChild(save);
+}
+
+/* 首页顶部紧凑版陪伴横幅：让情绪价值更常出现（用户诉求：放其他地方） */
+async function renderCompanionshipBanner() {
+  const car = await getCurrentCar();
+  const recs = await getCarRecords();
+  const c = computeCompanionship(car, recs);
+  const banner = document.createElement('div');
+  banner.className = 'companionship-banner';
+  banner.style.cssText = 'background:linear-gradient(135deg,#B42334,#8e1a28);color:#fff;border-radius:14px;padding:13px 16px;margin-bottom:12px;position:relative;overflow:hidden;cursor:pointer';
+  if (c.days == null && c.km == null && c.st.count === 0) {
+    banner.innerHTML = `<div style="font-size:14px;font-weight:600">🚗 ${escapeHtml(c.carName)}</div><div style="font-size:12px;opacity:.85;margin-top:4px">点此编辑爱车档案，记录你们的旅程 →</div>`;
+  } else {
+    const kmDisp = c.km != null ? (c.km >= 10000 ? (c.km / 10000).toFixed(1) + ' 万公里' : c.km.toFixed(0) + ' 公里') : '';
+    const dayPart = c.days != null ? `已陪你 <b>${c.days}</b> 天` : '';
+    const kmPart = kmDisp ? `走过 <b>${kmDisp}</b>` : '';
+    const sep = (dayPart && kmPart) ? ' · ' : '';
+    banner.innerHTML = `<div style="font-size:14px;font-weight:600">🚗 ${escapeHtml(c.carName)}</div>
+      <div style="font-size:13px;margin-top:6px;opacity:.95">${dayPart}${sep}${kmPart}</div>
+      <div style="font-size:11px;opacity:.8;margin-top:4px">${buildWarmLines(c)[0] || ''} · 点此编辑</div>`;
+  }
+  banner.addEventListener('click', () => { location.hash = '#me'; });
+  return banner;
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.0.1';
 const APP_BUILD_DATE = '2026-07-30';
 
 async function renderMe(container) {
@@ -137,6 +218,7 @@ async function init() {
   const theme = await getSetting('theme', 'classic-red');
   applyTheme(theme);
   await ensureDefaultCar();
+  seedRemindersIfNeeded().catch(() => {}); // 首次填充默认保养提醒，避免模块空白
   const car = await getCurrentCar();
   $('#carChip').textContent = car ? car.name : '我的红旗';
   bindUI();
