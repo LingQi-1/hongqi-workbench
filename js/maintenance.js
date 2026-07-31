@@ -9,11 +9,16 @@ const REMINDER_TEMPLATES = [
 
 /* ===== 首次使用：填充默认保养提醒，避免模块空白 ===== */
 async function seedRemindersIfNeeded() {
+  const seeded = await getSetting('remindersSeeded', false);
+  if (seeded) return;
+  let list = [];
+  try { list = await dbGetAll('reminders'); }
+  catch (e) {
+    console.warn('[红旗] reminders 仓储读取失败（可能不存在）:', e.message || e);
+    list = []; // 仓储不存在时当作空列表，继续走 seed 流程
+  }
+  if (list.length > 0) { await setSetting('remindersSeeded', true); return; }
   try {
-    const seeded = await getSetting('remindersSeeded', false);
-    if (seeded) return;
-    const list = await dbGetAll('reminders');
-    if (list.length > 0) { await setSetting('remindersSeeded', true); return; }
     const seeds = [
       { type: 'oil', label: '机油保养', interval: 5000, unit: 'km' },
       { type: 'tire', label: '轮胎检查', interval: 20000, unit: 'km' },
@@ -27,7 +32,11 @@ async function seedRemindersIfNeeded() {
       });
     }
     await setSetting('remindersSeeded', true);
-  } catch (e) { /* 仓储异常时静默跳过，不影响其他功能 */ }
+    console.log('[红旗] 已填充', seeds.length, '条默认保养提醒');
+  } catch (e) {
+    console.error('[红旗] seedReminders 失败:', e.message || e);
+    throw e; // 向上抛出，让调用方知道失败了
+  }
 }
 
 /* ===== 保养到期检查 & 通知 ===== */
@@ -154,16 +163,27 @@ async function getLatestOdometer() {
 }
 
 async function renderMaintenance(container) {
+  // 先显示加载态
+  container.innerHTML = '<h2>保养提醒</h2><div style="text-align:center;padding:40px 0;color:var(--muted);font-size:14px">⏳ 加载中...</div>';
+
   let reminders = [];
   try { reminders = await dbGetAll('reminders'); }
-  catch (e) { reminders = []; /* 仓储异常时显示空列表而非白屏 */ }
+  catch (e) {
+    console.warn('[红旗] reminders 首次读取失败，尝试 seed:', e.message || e);
+    // 仓储可能不存在，先 seed（seed 内部会再尝试读，db.js 自愈会重建仓储）
+    try { await seedRemindersIfNeeded(); reminders = await dbGetAll('reminders'); }
+    catch (e2) {
+      console.error('[红旗] reminders 仍然不可用:', e2.message || e2);
+      reminders = [];
+    }
+  }
 
-  // 自愈：列表为空且从未 seed 过时，补填充默认保养项（解决手机端空白问题）
+  // 自愈：列表为空时补填充默认保养项
   if (reminders.length === 0) {
     try {
       await seedRemindersIfNeeded();
       reminders = await dbGetAll('reminders').catch(() => []);
-    } catch (e) { /* 忽略，显示空态 */ }
+    } catch (e) { /* 最终兜底，显示空态 */ }
   }
 
   const latestOdo = await getLatestOdometer();
