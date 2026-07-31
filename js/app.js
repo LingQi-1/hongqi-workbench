@@ -8,7 +8,6 @@ const TABS = {
   me: { title: '我的', render: renderMe }
 };
 let currentTab = 'fuel';
-let routingLock = false; // 防止并发路由导致页面卡死
 
 /* ===== 爱车陪伴（情绪价值） ===== */
 /* 计算陪伴数据：优先用「爱车档案」手动填写的 提车日期/总里程，加油记录作兜底 */
@@ -197,15 +196,16 @@ const APP_VERSION = '2.0.7';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
-  container.innerHTML = '<h2>我的</h2><div style="text-align:center;padding:20px 0;color:var(--muted)">⏳ 加载中...</div>';
+  container.innerHTML = '';
+  const h2 = document.createElement('h2'); h2.textContent = '我的'; container.appendChild(h2);
 
   try {
-    // ① 车头区（头像 + 昵称 + 第一人称状态语）
-    await withTimeout(renderCarHeader(container), 3000, '车头区');
+    // ① 车头区（头像 + 昵称 + 第一人称状态语）—— buildCarStatusLine 内部已有 2s 超时保护
+    await renderCarHeader(container);
     // ② 爱车陪伴卡片（第一人称，情绪价值）
-    await withTimeout(renderCompanionshipCard(container), 3000, '陪伴卡');
+    await renderCompanionshipCard(container);
     // ③ 里程碑圆环（累计总里程 + 破千撒花）
-    await withTimeout(renderMilestoneRing(container), 3000, '里程碑');
+    await renderMilestoneRing(container);
     // ④ 每日车语
     await renderDailyQuote(container);
     // ⑤ 爱车档案（多车管理）
@@ -226,16 +226,12 @@ async function renderMe(container) {
       </div>`;
     container.appendChild(about);
     renderSyncSection(container);
-
-    // 清掉可能残留的加载提示
-    const loading = container.querySelector('div:has(> :only-child:contains("加载中"))');
-    // 简单方式：移除第一个只含"加载中"文字的 div
-    for (const el of container.querySelectorAll('div')) {
-      if (el.textContent.trim() === '⏳ 加载中...') { el.remove(); break; }
-    }
   } catch (e) {
     console.error('[红旗] 我的页渲染异常:', e);
-    container.innerHTML = '<h2>我的</h2><div class="card"><p style="color:var(--muted);padding:12px">页面加载遇到问题，请<a href="#" onclick="location.reload()">刷新重试</a></p><button class="btn" onclick="location.reload()" style="margin-top:8px">🔄 刷新页面</button></div>';
+    // 仅在完全无任何内容时显示错误页，避免覆盖已渲染的部分内容
+    if (!container.querySelector('.car-header, .card, .milestone-card, .daily-quote')) {
+      container.innerHTML = '<h2>我的</h2><div class="card"><p style="color:var(--muted);padding:12px">页面加载遇到问题，请<a href="#" onclick="location.reload()">刷新重试</a></p><button class="btn" onclick="location.reload()" style="margin-top:8px">🔄 刷新页面</button></div>';
+    }
   }
 }
 
@@ -243,38 +239,35 @@ function setActiveTab(tab) {
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
 }
 
+let routeSeq = 0; // 渲染序列号：保证只有最新的路由结果生效，避免并发渲染互相覆盖/卡死
 async function route(tab) {
   if (!TABS[tab]) tab = 'fuel';
-  // 防并发：如果正在路由中，等当前路由完成后再路由到最新目标
-  if (routingLock) { currentTab = tab; return; }
-  routingLock = true;
-  try {
-    currentTab = tab;
-    $('#topTitle').textContent = TABS[tab].title;
-    setActiveTab(tab);
-    const view = $('#view');
-    view.innerHTML = '';
-    await TABS[tab].render(view);
-  } finally {
-    routingLock = false;
-    // 如果在渲染期间有新的目标tab被设置，立即路由过去
-    if (currentTab !== tab) route(currentTab);
-  }
+  const seq = ++routeSeq;
+  currentTab = tab;
+  // 静默同步 hash（replaceState 不触发 hashchange，避免和点击路由重复/冲突）
+  try { if (location.hash.replace('#', '') !== tab) history.replaceState(null, '', '#' + tab); } catch (e) {}
+  $('#topTitle').textContent = TABS[tab].title;
+  setActiveTab(tab);
+  const view = $('#view');
+  view.innerHTML = '';
+  await TABS[tab].render(view);
+  if (seq !== routeSeq) return; // 已有更新的路由开始，放弃本次结果（不会卡死）
 }
 
 async function refreshView() { await route(currentTab); }
 
 function bindUI() {
   document.querySelectorAll('.tab').forEach((b) => {
-    b.addEventListener('click', () => {
-      const t = b.getAttribute('data-tab');
-      location.hash = t; // hash 用于 PWA 恢复
-      route(t);           // 直接调用确保立即响应（不依赖 hashchange 时序）
-    });
+    // 点击直接路由，彻底不依赖 hashchange（修复：默认进加油页后点"我的"无反应）
+    b.addEventListener('click', () => route(b.getAttribute('data-tab')));
   });
   $('#sheetClose').addEventListener('click', closeSheet);
   $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
-  window.addEventListener('hashchange', () => route(location.hash.replace('#', '')));
+  // 仅响应浏览器前进/后退造成的 hash 变化；加载时不依赖 hash 决定初始页（始终默认加油）
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.replace('#', '');
+    if (h && TABS[h] && h !== currentTab) route(h);
+  });
 }
 
 async function init() {
