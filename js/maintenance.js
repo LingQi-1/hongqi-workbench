@@ -222,11 +222,14 @@ function buildMaintenanceHTML(reminders, latestOdo, isDbDead) {
     h += `<button class="btn" id="addRmdBtn" style="margin-top:12px">+ 添加保养提醒</button>`;
   }
 
-  // 推送通知开关
-  const notifStatus = 'Notification' in window ? (Notification.permission === 'granted' ? '已开启' : Notification.permission === 'denied' ? '已拒绝' : '未开启') : '不支持';
+  // 推送通知开关（微信 webview 没有 Notification 对象，必须全链路守卫）
+  const hasNotif = typeof Notification !== 'undefined';
+  const notifPerm = hasNotif ? (Notification.permission || 'default') : 'unsupported';
+  const notifStatus = notifPerm === 'granted' ? '已开启' : notifPerm === 'denied' ? '已拒绝' : (hasNotif ? '未开启' : '不支持');
+  const notifBtnClass = notifPerm === 'granted' ? 'ghost' : '';
   h += `<div class="card" style="margin-top:12px"><div class="card-title">📱 推送通知</div>
-    <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${Notification.permission === 'granted' ? 'ghost' : ''}" style="width:auto">${notifStatus} · 点此设置</button></div>
-    <p class="muted" style="font-size:11px;margin:6px 0 0">开启后，保养到期时即使不在本页面也会收到系统提醒。</p></div>`;
+    <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${notifBtnClass}" style="width:auto">${notifStatus} · 点此设置</button></div>
+    <p class="muted" style="font-size:11px;margin:6px 0 0">${hasNotif ? '开启后，保养到期时即使不在本页面也会收到系统提醒。' : '当前浏览器不支持推送通知（微信内置浏览器无此功能）。</p>'}</div>`;
 
   // 重置按钮（始终显示在最后，方便用户紧急恢复）
   h += `<div class="card" style="margin-top:12px;border:1px dashed var(--line)">
