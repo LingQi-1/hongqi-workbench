@@ -119,8 +119,8 @@ window.initHome3D = async function (canvas, opts = {}) {
         dracoLoader.setDecoderConfig({ type: 'js' });
         loader.setDRACOLoader(dracoLoader);
       }
-      // 追加 ?v=2 绕过手机端 HTTP/CDN/SW 各级缓存，确保加载最新真实车模
-      const gltf = await loader.loadAsync('models/car.glb?v=2', () => {});
+      // 追加 ?v=3 绕过手机端 HTTP/CDN/SW 各级缓存，确保加载最新真实车模
+      const gltf = await loader.loadAsync('models/car.glb?v=3', () => {});
       while (carHolder.children.length) carHolder.remove(carHolder.children[0]);
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
