@@ -42,16 +42,16 @@ function computeCompanionship(car, recs) {
 function buildWarmLines(c) {
   const lines = [];
   if (c.days != null) {
-    if (c.days >= 365) lines.push(`🎂 你们已经相伴 ${Math.floor(c.days / 365)} 年零 ${c.days % 365} 天了`);
-    else if (c.days >= 30) lines.push(`💕 你们已经相伴 ${c.days} 天了`);
-    else lines.push(`🌱 刚刚开启旅程，第 ${c.days} 天`);
+    if (c.days >= 365) lines.push(`🎂 我陪了主人 ${Math.floor(c.days / 365)} 年零 ${c.days % 365} 天啦`);
+    else if (c.days >= 30) lines.push(`💕 我已经陪了主人 ${c.days} 天`);
+    else lines.push(`🌱 刚和主人开启旅程，第 ${c.days} 天`);
   }
   if (c.km != null) {
-    lines.push(c.km >= 10000 ? `🛣️ 一同走过 ${(c.km / 10000).toFixed(1)} 万公里` : `🛣️ 一同走过 ${c.km.toFixed(0)} 公里`);
+    lines.push(c.km >= 10000 ? `🛣️ 陪主人走过 ${(c.km / 10000).toFixed(1)} 万公里` : `🛣️ 陪主人走过 ${c.km.toFixed(0)} 公里`);
   }
-  if (c.st.count >= 10) lines.push(`⛽ 为它加油 ${c.st.count} 次，每次都是满满的爱`);
-  else if (c.st.count > 0) lines.push(`⛽ 已记录 ${c.st.count} 次加油`);
-  if (lines.length === 0) lines.push('点「编辑爱车档案」，记录提车日期与里程，开启你们的专属故事 💝');
+  if (c.st.count >= 10) lines.push(`⛽ 主人给我加了 ${c.st.count} 次油，每次都满满的爱`);
+  else if (c.st.count > 0) lines.push(`⛽ 主人已给我加 ${c.st.count} 次油`);
+  if (lines.length === 0) lines.push('点「编辑爱车档案」，让主人记录提车日期与里程，开启我们的专属故事 💝');
   return lines;
 }
 
@@ -115,11 +115,40 @@ async function openCarProfileForm() {
   const wrap = document.createElement('div');
   wrap.innerHTML = `
     <div class="field"><label>爱车昵称</label><input id="p_name" value="${escapeHtml(car.name || '')}" placeholder="如：我的红旗 H9" /></div>
+    <div class="field"><label>爱车头像</label>
+      <div class="avatar-picker" id="avatarPicker">
+        ${CAR_AVATARS.map(a => `<span class="avatar-opt ${((car.avatar || '🚗') === a) ? 'active' : ''}" data-av="${a}">${a}</span>`).join('')}
+      </div>
+      <label class="upload-btn">📷 上传图片<input type="file" id="p_avatar_file" accept="image/*" hidden></label>
+      <input type="hidden" id="p_avatar" value="${escapeHtml(car.avatar || '🚗')}">
+    </div>
     <div class="field"><label>提车日期（用于计算「相伴天数」）</label><input type="date" id="p_buy" value="${car.buyDate || ''}" max="${todayStr()}" /></div>
     <div class="field"><label>行驶总里程 km（用于计算「同行公里」，可不填）</label><input type="number" id="p_km" inputmode="decimal" value="${car.totalKm != null ? car.totalKm : ''}" placeholder="如 30000，可不填" /></div>
     <p class="muted" style="font-size:12px;margin:2px 0 12px">提车日期和总里程为<b>手动填写，不依赖加油记录</b>。留空则自动用加油记录推算。</p>
   `;
   openSheet('编辑爱车档案', wrap);
+
+  // 头像选择（emoji / 上传图）
+  const avInput = wrap.querySelector('#p_avatar');
+  wrap.querySelectorAll('.avatar-opt').forEach(o => {
+    o.addEventListener('click', () => {
+      avInput.value = o.getAttribute('data-av');
+      wrap.querySelectorAll('.avatar-opt').forEach(x => x.classList.toggle('active', x === o));
+    });
+  });
+  const fileInput = wrap.querySelector('#p_avatar_file');
+  fileInput.addEventListener('change', () => {
+    const f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      avInput.value = reader.result;
+      wrap.querySelectorAll('.avatar-opt').forEach(x => x.classList.remove('active'));
+      toast('已选择图片');
+    };
+    reader.readAsDataURL(f);
+  });
+
   const save = document.createElement('button');
   save.className = 'btn';
   save.textContent = '保存';
@@ -128,7 +157,8 @@ async function openCarProfileForm() {
     const buyDate = wrap.querySelector('#p_buy').value || null;
     const kmRaw = wrap.querySelector('#p_km').value.trim();
     const totalKm = kmRaw === '' ? null : (parseFloat(kmRaw) || null);
-    const updated = { ...car, name, buyDate, totalKm };
+    const avatar = avInput.value || '🚗';
+    const updated = { ...car, name, buyDate, totalKm, avatar };
     await dbPut('cars', updated);
     if (await getCurrentCarId() === car.id) { const chip = $('#carChip'); if (chip) chip.textContent = name; }
     closeSheet();
@@ -162,15 +192,26 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.6';
+const APP_VERSION = '2.0.7';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
   container.innerHTML = '<h2>我的</h2>';
 
-  // ===== 爱车陪伴卡片（情绪价值） =====
+  // ① 车头区（头像 + 昵称 + 第一人称状态语）
+  await renderCarHeader(container);
+  // ② 爱车陪伴卡片（第一人称，情绪价值）
   await renderCompanionshipCard(container);
-
+  // ③ 里程碑圆环（累计总里程 + 破千撒花）
+  await renderMilestoneRing(container);
+  // ④ 每日车语
+  await renderDailyQuote(container);
+  // ⑤ 爱车档案（多车管理）
+  await renderCarsSection(container);
+  await renderCarComparison(container);   // 多车对比（2+车时显示）
+  // ⑥ 主题外观切换
+  renderThemeSection(container);
+  // ⑦ 关于 / 版本号
   const about = document.createElement('div');
   about.className = 'card';
   about.innerHTML = `<div class="card-title">关于「我的红旗」</div>
@@ -182,9 +223,6 @@ async function renderMe(container) {
       <span class="tag" style="--brand-soft:#fff3e0;--brand:#e65100">PWA 离线可用</span>
     </div>`;
   container.appendChild(about);
-  await renderCarsSection(container);
-  await renderCarComparison(container);   // 多车对比（2+车时显示）
-  renderThemeSection(container);          // 主题外观切换
   renderSyncSection(container);
 }
 
@@ -280,6 +318,204 @@ function renderThemeSection(container) {
       toast('已切换主题');
     });
   });
+}
+
+/* ===== 第一波新功能（v2.0.7）：车头区 / 里程碑圆环 / 每日车语 / 拟人IP ===== */
+
+const CAR_AVATARS = ['🚗','🚕','🚙','🏎️','🚓','🚐','🛻','🔥','⚡','🌟','❤️','🐯','🦁','🐉','🌈','💎'];
+
+/* ① 车头区：头像 + 昵称 + 第一人称状态语 */
+async function renderCarHeader(container) {
+  const car = await getCurrentCar();
+  const recs = await getCarRecords();
+  const header = document.createElement('div');
+  header.className = 'car-header';
+  const av = car.avatar || '🚗';
+  const isImg = typeof av === 'string' && av.startsWith('data:');
+  const status = await buildCarStatusLine(car, recs);
+  header.innerHTML = `
+    <div class="car-avatar">${isImg ? `<img src="${escapeHtml(av)}" alt="">` : escapeHtml(av)}</div>
+    <div class="car-head-info">
+      <div class="car-name">${escapeHtml(car.name || '我的红旗')}</div>
+      <div class="car-status">${escapeHtml(status)}</div>
+    </div>
+    <div class="car-head-edit">✎</div>`;
+  header.addEventListener('click', openCarProfileForm);
+  container.appendChild(header);
+}
+
+/* 第一人称状态语（基于真实数据动态生成） */
+async function buildCarStatusLine(car, recs) {
+  // 保养到期优先提示
+  try {
+    const reminders = await dbGetAll('reminders');
+    const odo = await getLatestOdometerSafe();
+    for (const r of reminders) { if (typeof checkReminderDue === 'function' && checkReminderDue(r, odo)) return '我有点饿了，该去做保养咯 🔧'; }
+  } catch (e) {}
+  // 最近一次加油油号
+  const sorted = [...recs].filter(r => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
+  const last = sorted[sorted.length - 1];
+  const grade = last && last.grade ? last.grade : '';
+  if (grade) return `今天主人又带我喝 ${grade} 号油啦，真香~`;
+  if (car && car.buyDate) return '今天也要开开心心陪主人出门呀 ✨';
+  return '点这里编辑我，给我起个名字吧 💬';
+}
+
+/* 安全读取最新里程（不依赖 maintenance.js 的实现） */
+async function getLatestOdometerSafe() {
+  try {
+    const recs = await getCarRecords();
+    const w = recs.filter(r => r.odometer != null && r.odometer !== '' && !isNaN(parseFloat(r.odometer)))
+      .map(r => ({ ...r, odo: parseFloat(r.odometer) }))
+      .sort((a, b) => (a.date < b.date ? -1 : 1));
+    return w.length ? w[w.length - 1].odo : 0;
+  } catch (e) { return 0; }
+}
+
+/* ③ 里程碑圆环（累计总里程 + 破千撒花） */
+async function renderMilestoneRing(container) {
+  const car = await getCurrentCar();
+  const recs = await getCarRecords();
+  const c = computeCompanionship(car, recs);
+  const totalKmRaw = (car && car.totalKm != null && !isNaN(parseFloat(car.totalKm)))
+    ? parseFloat(car.totalKm) : (c.km != null ? c.km : 0);
+  const totalKm = Math.max(0, totalKmRaw);
+
+  const seg = 10000;
+  const prev = Math.floor(totalKm / seg) * seg;
+  const next = prev + seg;
+  const pct = totalKm > 0 ? (totalKm - prev) / (next - prev) : 0;
+  const earth = totalKm > 0 ? (totalKm / 40075).toFixed(2) : '0';
+  const R = 52, C = 2 * Math.PI * R;
+  const dash = (pct * C).toFixed(1);
+
+  const card = document.createElement('div');
+  card.className = 'card milestone-card';
+  card.innerHTML = `
+    <div class="card-title">🏁 里程里程碑</div>
+    <div class="milestone-ring">
+      <svg viewBox="0 0 120 120" class="ring-svg">
+        <circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--line)" stroke-width="10"></circle>
+        <circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--brand)" stroke-width="10" stroke-linecap="round" stroke-dasharray="${dash} ${C}" transform="rotate(-90 60 60)"></circle>
+      </svg>
+      <div class="ring-center">
+        <div class="ring-km">${totalKm > 0 ? totalKm.toLocaleString('zh-CN') : '—'}</div>
+        <div class="ring-unit">累计公里</div>
+      </div>
+    </div>
+    <div class="milestone-foot">
+      <span>距 ${(next - totalKm).toLocaleString('zh-CN')} km 破 ${(next / 10000).toFixed(0)} 万</span>
+      <span>🌍 绕地球 ${earth} 圈</span>
+    </div>`;
+  container.appendChild(card);
+
+  // 破千撒花（每累计满 1000km 触发一次）
+  try {
+    const last = Number(await getSetting('lastMilestoneKm', 0)) || 0;
+    if (totalKm > 0 && Math.floor(totalKm / 1000) > Math.floor(last / 1000)) {
+      launchConfetti();
+      await setSetting('lastMilestoneKm', Math.floor(totalKm / 1000) * 1000);
+      toast('🎉 里程又破千啦！');
+    }
+  } catch (e) {}
+}
+
+/* ④ 每日车语（本地语料，按日期稳定轮换） */
+const DAILY_QUOTES = [
+  '车是移动的家，善待它，它陪你走更远的路。',
+  '保养不偷懒，关键时刻它才不掉链子。',
+  '胎压每月查一次，安全又省油。',
+  '冷车启动别猛轰油门，温柔点它更耐用。',
+  '机油是发动机的血液，按时换才有劲。',
+  '雨天行车，轮胎花纹深度别低于 1.6mm。',
+  '长途前检查玻璃水和刹车油，省心一半。',
+  '怠速热车 30 秒足够，长时间原地热车反而伤车。',
+  '加油别等亮灯，油泵靠油冷却，太低易坏。',
+  '方向盘跑偏？先做四轮定位再看。',
+  '空调滤芯一年换一次，呼吸更健康。',
+  '刹车有异响，别拖，八成是片磨没了。',
+  '夏天别把打火机放车内，暴晒易炸。',
+  '雨雪天保持车距，刹车距离是平时的两倍。',
+  '变速箱油别忘换，很多车主都忽略。',
+  '洗车别用洗衣粉，伤漆；用专用洗车液。',
+  '停车回正方向盘，保护转向系统。',
+  '备胎也要定期检查，不然用时才发现没气。',
+  '导航更新了，陌生路段少走冤枉路。',
+  '车灯不只是照明，更是让别人看见你。',
+  '发动机积碳？偶尔拉拉高速有帮助。',
+  '雨刮器一年换一对，别等刮不干净。',
+  '高速上错过出口别急刹，下个出口绕回来。',
+  '儿童乘车用安全座椅，后排更安全。',
+  '夜间会车切近光，是修养也是安全。',
+  '定期清理发动机舱灰尘，散热更好。',
+  '加油标号按厂家建议，不是越贵越好。',
+  '电瓶寿命约 3-5 年，亏电前常有征兆。',
+  '底盘装甲能防锈，南方潮湿尤其值得。',
+  '自驾游前做个全面检查，旅途更安心。',
+  '车漆有小划痕，及时补漆笔点一下防生锈。',
+  ' Eco 模式省油，但超车时要切回普通。',
+  '冬天玻璃水用防冻型，别用自来水。',
+  '安全带是最便宜的保命配置，必系。',
+  '转向助力油也要换，很多手册都写了。',
+  '车越爱惜，二手越值钱。',
+  '记录每次加油，心里有本明白账。',
+  '陪你通勤的每一公里，都是生活的一部分。',
+  '车不在贵，顺手就好；路不在远，平安就好。',
+  '好好养车，也是好好生活。'
+];
+
+function pickDailyQuote() {
+  const now = new Date();
+  const key = now.getFullYear() * 372 + now.getMonth() * 31 + now.getDate();
+  return DAILY_QUOTES[((key % DAILY_QUOTES.length) + DAILY_QUOTES.length) % DAILY_QUOTES.length];
+}
+
+async function renderDailyQuote(container) {
+  const q = pickDailyQuote();
+  const el = document.createElement('div');
+  el.className = 'card daily-quote';
+  el.innerHTML = `<div class="card-title">💡 每日车语 · ${todayStr()}</div>
+    <div class="quote-text">${escapeHtml(q)}</div>`;
+  container.appendChild(el);
+}
+
+/* 轻量撒花（canvas，无外部依赖，PWA 离线可用） */
+function launchConfetti() {
+  try {
+    if (typeof document === 'undefined') return;
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:9999';
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = window.innerWidth;
+    const H = canvas.height = window.innerHeight;
+    const colors = ['#B42334', '#A0780A', '#EF9FC0', '#9B8FA3', '#16a34a', '#ffb300'];
+    const N = 120;
+    const ps = [];
+    for (let i = 0; i < N; i++) {
+      ps.push({
+        x: Math.random() * W, y: -20 - Math.random() * H * 0.5,
+        r: 4 + Math.random() * 5, c: colors[i % colors.length],
+        vy: 2 + Math.random() * 3, vx: -2 + Math.random() * 4,
+        rot: Math.random() * Math.PI, vr: -0.2 + Math.random() * 0.4
+      });
+    }
+    let t = 0;
+    function frame() {
+      ctx.clearRect(0, 0, W, H);
+      let alive = false;
+      for (const p of ps) {
+        p.y += p.vy; p.x += p.vx; p.rot += p.vr;
+        if (p.y < H + 20) alive = true;
+        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.c;
+        ctx.fillRect(-p.r / 2, -p.r / 2, p.r, p.r * 1.6); ctx.restore();
+      }
+      t++;
+      if (alive && t < 200) requestAnimationFrame(frame);
+      else if (canvas.parentNode) canvas.parentNode.removeChild(canvas);
+    }
+    requestAnimationFrame(frame);
+  } catch (e) {}
 }
 
 document.addEventListener('DOMContentLoaded', init);
