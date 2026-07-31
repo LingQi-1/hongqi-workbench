@@ -7,15 +7,23 @@ const REMINDER_TEMPLATES = [
   { key: 'insurance', label: '保险到期', icon: '🛡️', unit: 'date', defaultInterval: 365 },
 ];
 
-/* ===== 首次使用：填充默认保养提醒，避免模块空白 ===== */
+/* ===== 通用安全超时：任何 promise 超过 ms 未决则 reject，防止永久挂起 ===== */
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    Promise.resolve(promise),
+    new Promise((_, reject) => setTimeout(() => reject(new Error((label || '操作') + ' 超时(' + ms + 'ms)')), ms))
+  ]);
+}
+
+/* ===== 首次使用：填充默认保养提醒 ===== */
 async function seedRemindersIfNeeded() {
   const seeded = await getSetting('remindersSeeded', false);
   if (seeded) return;
   let list = [];
   try { list = await dbGetAll('reminders'); }
   catch (e) {
-    console.warn('[红旗] reminders 仓储读取失败（可能不存在）:', e.message || e);
-    list = []; // 仓储不存在时当作空列表，继续走 seed 流程
+    console.warn('[红旗] reminders 仓储读取失败:', e.message || e);
+    list = [];
   }
   if (list.length > 0) { await setSetting('remindersSeeded', true); return; }
   try {
@@ -35,30 +43,32 @@ async function seedRemindersIfNeeded() {
     console.log('[红旗] 已填充', seeds.length, '条默认保养提醒');
   } catch (e) {
     console.error('[红旗] seedReminders 失败:', e.message || e);
-    throw e; // 向上抛出，让调用方知道失败了
+    throw e;
   }
 }
 
 /* ===== 保养到期检查 & 通知 ===== */
-let _lastNotifiedMap = {}; // 防止重复通知
+let _lastNotifiedMap = {};
 
 async function checkAndNotifyReminders() {
-  const reminders = await dbGetAll('reminders');
-  const latestOdo = await getLatestOdometer();
+  let reminders = [];
+  try { reminders = await withTimeout(dbGetAll('reminders'), 3000, '通知-读保养'); }
+  catch (e) { console.warn('[红旗] 通知检查跳过(读保养失败):', e.message); return; }
+
+  let latestOdo = null;
+  try { latestOdo = await withTimeout(getLatestOdometer(), 3000, '通知-读里程'); }
+  catch (e) { /* 里程读不到不影响通知 */ }
+
   const now = Date.now();
   const urgentItems = [];
 
   for (const r of reminders) {
-    // 节流：同一提醒5分钟内不重复通知
     if (_lastNotifiedMap[r.id] && now - _lastNotifiedMap[r.id] < 300000) continue;
-
     const isDue = checkReminderDue(r, latestOdo);
     if (!isDue) {
-      // 检查是否即将到期（20%以内）
       const st = formatReminderStatus(r, latestOdo);
       if (!st.urgent) continue;
     }
-
     const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
     const st = formatReminderStatus(r, latestOdo);
     urgentItems.push({ r, tpl, st });
@@ -67,26 +77,23 @@ async function checkAndNotifyReminders() {
 
   if (urgentItems.length === 0) return;
 
-  // 1. 页面内弹窗提示
   const msg = urgentItems.map((item) => `⚠️ ${item.tpl.icon} ${item.r.label || item.tpl.label}：${item.st.text}`).join('\n');
   showMaintenanceAlert(msg);
 
-  // 2. 浏览器推送通知（如果已授权）
   if ('Notification' in window && Notification.permission === 'granted') {
     for (const item of urgentItems) {
       try {
         new Notification('🚗 我的红旗 - 保养提醒', {
           body: `${item.r.label || item.tpl.label}：${item.st.text}`,
           icon: 'icon.svg',
-          tag: `rmd-${item.r.id}`, // 相同tag会替换而非堆叠
+          tag: `rmd-${item.r.id}`,
         });
-      } catch (e) { /* 忽略通知失败 */ }
+      } catch (e) {}
     }
   }
 }
 
 function showMaintenanceAlert(msg) {
-  // 创建一个全局的保养提醒弹窗
   const existing = document.getElementById('maintenanceAlert');
   if (existing) existing.remove();
 
@@ -110,14 +117,10 @@ function showMaintenanceAlert(msg) {
   document.body.appendChild(overlay);
 
   overlay.querySelector('#alertLater').onclick = () => overlay.remove();
-  overlay.querySelector('#alertGo').onclick = () => {
-    overlay.remove();
-    location.hash = '#maintenance';
-  };
+  overlay.querySelector('#alertGo').onclick = () => { overlay.remove(); location.hash = '#maintenance'; };
   overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
 }
 
-/* 请求通知权限 */
 function requestNotificationPermission() {
   if ('Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission().then((perm) => {
@@ -162,130 +165,255 @@ async function getLatestOdometer() {
   return Math.max(...carRecs.map((r) => parseFloat(r.odometer)));
 }
 
-// 安全超时：任何 await 挂起超过指定毫秒，强制 reject，绝不卡死在"加载中"
-function withTimeout(promise, ms, label) {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error((label || '操作') + ' 超时')), ms);
-    Promise.resolve(promise).then(resolve, reject).finally(() => clearTimeout(t));
-  });
-}
+/* ================================================================
+ *  保养页渲染 — 核心设计原则：
+ *  1. "加载中"状态使用独立 ID 元素，通过 replaceLoading() 在所有代码路径中必定被替换
+ *  2. 每个数据库操作都有独立超时（2~4秒），单个挂起不拖垮整页
+ *  3. DB 完全不可用时，用硬编码模板数据渲染（只读模式），保证界面可见
+ *  4. 异常路径全部有兜底 UI（错误提示+重试+重置按钮）
+ * ================================================================ */
 
-async function renderMaintenance(container) {
-  // 先显示加载态（带超时提示）
-  container.innerHTML = '<h2>保养提醒</h2><div id="maintLoading" style="text-align:center;padding:40px 0;color:var(--muted);font-size:14px">⏳ 加载中...</div>';
+/** 构建保养页完整 HTML（纯同步函数，100% 不会抛错或挂起） */
+function buildMaintenanceHTML(reminders, latestOdo, isDbDead) {
+  let h = '<div class="card"><div class="card-title">🔔 我的保养计划</div>';
 
-  // 整页渲染包在 try/catch 内：任意一个 await 抛错都不会卡死在"加载中"
-  try {
-    let reminders = [];
-    try { reminders = await withTimeout(dbGetAll('reminders'), 4000, '读取保养'); }
-    catch (e) {
-      console.warn('[红旗] reminders 首次读取失败，尝试 seed:', e.message || e);
-      // 仓储可能不存在，先 seed（seed 内部会再尝试读，db.js 自愈会重建仓储）
-      try {
-        await seedRemindersIfNeeded();
-        reminders = await withTimeout(dbGetAll('reminders'), 4000, '读取保养').catch(() => []);
-      } catch (e2) {
-        console.error('[红旗] reminders 仍然不可用:', e2.message || e2);
-        reminders = [];
-      }
-    }
-
-    // 自愈：列表为空时补填充默认保养项
-    if (reminders.length === 0) {
-      try {
-        await seedRemindersIfNeeded();
-        reminders = await withTimeout(dbGetAll('reminders'), 4000, '读取保养').catch(() => []);
-      } catch (e) { /* 最终兜底，显示空态 */ }
-    }
-
-    // 读取最新里程（用于判断是否到期）—— 失败也不拖垮页面，latestOdo 置 null
-    let latestOdo = null;
-    try { latestOdo = await withTimeout(getLatestOdometer(), 4000, '读取里程'); }
-    catch (e) { console.warn('[红旗] 读里程失败，状态按"未设置"处理:', e.message || e); }
-
-    let html = '<h2>保养提醒</h2>';
-    html += '<div class="card"><div class="card-title">🔔 我的保养计划</div>';
-
+  // DB 不可用的警告横幅
+  if (isDbDead) {
+    h += `<div class="info-line" style="background:#fff3cd;color:#856404;border-color:#ffc107">
+      ⚠️ 本地存储暂时不可能（可能浏览器隐私模式或存储配额已满）。下方显示默认模板，<b>编辑功能暂不可用</b>。可尝试「重置本地数据」恢复。
+    </div>`;
+  } else {
     // 状态总览
     let urgentCount = 0;
     for (const r of reminders) {
       if (checkReminderDue(r, latestOdo)) urgentCount++;
     }
     if (urgentCount > 0) {
-      html += `<div class="info-line" style="background:#fef3cd;color:#856404;border-color:#ffc107">⚠️ 有 ${urgentCount} 项保养已到期或即将到期，请检查！</div>`;
+      h += `<div class="info-line" style="background:#fef3cd;color:#856404;border-color:#ffc107">⚠️ 有 ${urgentCount} 项保养已到期或即将到期，请检查！</div>`;
     } else if (reminders.length > 0) {
-      html += `<div class="info-line" style="background:var(--brand-soft);color:var(--brand);border-color:var(--brand)">✅ 保养计划正常，暂无到期项</div>`;
+      h += `<div class="info-line" style="background:var(--brand-soft);color:var(--brand);border-color:var(--brand)">✅ 保养计划正常，暂无到期项</div>`;
     }
+  }
 
-    // 列表
-    if (reminders.length === 0) {
-      html += '<div class="muted" style="font-size:13px;padding:10px 0">暂未添加保养提醒，点击下方按钮添加。</div>';
-    } else {
-      for (const r of reminders) {
-        const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
-        const st = formatReminderStatus(r, latestOdo);
-        html += `<div class="item" data-rid="${r.id}" style="cursor:pointer">
-          <span style="font-size:22px">${tpl.icon || '📌'}</span>
-          <div class="main">
-            <div class="t1">${escapeHtml(r.label || tpl.label || r.type)}</div>
-            <div class="t2" style="${st.urgent && !st.ok ? 'color:var(--brand);font-weight:600' : (st.urgent ? 'color:#b8860b' : '')}">${st.text}</div>
-          </div>
-          <span class="del" data-rid="${r.id}">&times;</span>
-        </div>`;
-      }
-    }
-
-    html += `<button class="btn" id="addRmdBtn" style="margin-top:12px">+ 添加保养提醒</button>`;
-
-    // 推送通知开关
-    const notifStatus = 'Notification' in window ? (Notification.permission === 'granted' ? '已开启' : Notification.permission === 'denied' ? '已拒绝' : '未开启') : '不支持';
-    html += `<div class="card" style="margin-top:12px"><div class="card-title">📱 推送通知</div>
-      <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${Notification.permission === 'granted' ? 'ghost' : ''}" style="width:auto">${notifStatus} · 点此设置</button></div>
-      <p class="muted" style="font-size:11px;margin:6px 0 0">开启后，保养到期时即使不在本页面也会收到系统提醒。</p></div>`;
-
-    html += '</div>';
-    container.innerHTML = html;
-
-    // 删除
-    container.querySelectorAll('[data-rid].del').forEach((b) => {
-      b.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        if (!confirm('删除此提醒？')) return;
-        await dbDel('reminders', b.getAttribute('data-rid'));
-        await refreshView();
-        toast('已删除');
-      });
-    });
-
-    // 点击编辑
-    container.querySelectorAll('[data-rid].item').forEach((el) => {
-      el.addEventListener('click', () => openReminderForm(el.getAttribute('data-rid')));
-    });
-
-    // 新增
-    container.querySelector('#addRmdBtn').addEventListener('click', () => openReminderForm());
-
-    // 推送通知
-    const notifBtn = container.querySelector('#notifBtn');
-    if (notifBtn) {
-      notifBtn.addEventListener('click', () => {
-        if (!('Notification' in window)) { toast('您的浏览器不支持推送通知'); return; }
-        if (Notification.permission === 'denied') { toast('请在浏览器设置中允许通知权限'); return; }
-        requestNotificationPermission();
-      });
-    }
-  } catch (err) {
-    // 极少数情况下整段仍抛错：显示错误态而非永久"加载中"，并给一次重试入口
-    console.error('[红旗] 保养页渲染失败（兜底）:', err && (err.message || err));
-    const loadingEl = container.querySelector('#maintLoading');
-    if (loadingEl) {
-      loadingEl.outerHTML = `<div class="muted" style="text-align:center;padding:30px 12px;line-height:1.8">
-        保养数据加载失败。<br>可刷新页面或点下方重试。<br>
-        <button class="btn" id="maintRetry" style="margin-top:12px">重试</button>
+  // 列表
+  if (reminders.length === 0) {
+    h += '<div class="muted" style="font-size:13px;padding:10px 0">暂未添加保养提醒，点击下方按钮添加。</div>';
+  } else {
+    for (const r of reminders) {
+      const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
+      const st = formatReminderStatus(r, latestOdo);
+      const fbClass = r._isFallback ? ' style="opacity:.7"' : '';
+      const delBtn = r._isFallback ? '' : `<span class="del" data-rid="${r.id}">&times;</span>`;
+      h += `<div class="item" data-rid="${r.id}" style="cursor:pointer${r._isFallback ? ';pointer-events:none' : ''}">
+        <span style="font-size:22px">${tpl.icon || '📌'}</span>
+        <div class="main">
+          <div class="t1">${escapeHtml(r.label || tpl.label || r.type)}</div>
+          <div class="t2" style="${st.urgent && !st.ok ? 'color:var(--brand);font-weight:600' : (st.urgent ? 'color:#b8860b' : '')}">${st.text}</div>
+        </div>
+        ${delBtn}
       </div>`;
-      const rb = container.querySelector('#maintRetry');
-      if (rb) rb.addEventListener('click', () => renderMaintenance(container));
     }
+  }
+
+  // 添加按钮（DB 死亡时禁用）
+  if (isDbDead) {
+    h += `<button class="btn" disabled style="margin-top:12px;opacity:.5">+ 添加保养提醒（存储不可用）</button>`;
+  } else {
+    h += `<button class="btn" id="addRmdBtn" style="margin-top:12px">+ 添加保养提醒</button>`;
+  }
+
+  // 推送通知开关
+  const notifStatus = 'Notification' in window ? (Notification.permission === 'granted' ? '已开启' : Notification.permission === 'denied' ? '已拒绝' : '未开启') : '不支持';
+  h += `<div class="card" style="margin-top:12px"><div class="card-title">📱 推送通知</div>
+    <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${Notification.permission === 'granted' ? 'ghost' : ''}" style="width:auto">${notifStatus} · 点此设置</button></div>
+    <p class="muted" style="font-size:11px;margin:6px 0 0">开启后，保养到期时即使不在本页面也会收到系统提醒。</p></div>`;
+
+  // 重置按钮（始终显示在最后，方便用户紧急恢复）
+  h += `<div class="card" style="margin-top:12px;border:1px dashed var(--line)">
+    <div class="card-title" style="font-size:13px">🔧 故障排除</div>
+    <p class="muted" style="font-size:12px;margin:0 0 8px">如果保养数据反复加载失败，可点击下方按钮重置本地存储（仅清除保养相关数据，加油记录不受影响）。</p>
+    <button class="btn ghost" id="resetMaintBtn" style="font-size:13px">重置保养数据</button>
+  </div>`;
+
+  h += '</div>';
+  return h;
+}
+
+/** 构建错误态 HTML */
+function buildErrorHTML(err) {
+  const msg = err && (err.message || err) ? String(err.message).slice(0, 120) : '未知错误';
+  return `<div class="muted" style="text-align:center;padding:30px 12px;line-height:1.8">
+    <div style="font-size:28px;margin-bottom:8px">😵</div>
+    保养数据加载失败<br><code style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px">${escapeHtml(msg)}</code><br>
+    <button class="btn" id="maintRetry" style="margin-top:12px">🔄 重新加载</button>
+    <button class="btn ghost" id="resetMaintBtn2" style="margin-top:8px;font-size:13px">🔧 重置保养数据</button>
+  </div>`;
+}
+
+/** 绑定保养页交互事件 */
+function bindMaintenanceEvents(container, isDbDead) {
+  if (isDbDead) {
+    // DB 死亡模式下只有重置按钮可用
+    const rb = container.querySelector('#resetMaintBtn');
+    if (rb) rb.addEventListener('click', () => resetMaintenanceData(container));
+    return;
+  }
+
+  // 删除
+  container.querySelectorAll('[data-rid].del').forEach((b) => {
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!confirm('删除此提醒？')) return;
+      await dbDel('reminders', b.getAttribute('data-rid'));
+      await refreshView();
+      toast('已删除');
+    });
+  });
+
+  // 点击编辑
+  container.querySelectorAll('[data-rid].item').forEach((el) => {
+    el.addEventListener('click', () => openReminderForm(el.getAttribute('data-rid')));
+  });
+
+  // 新增
+  const addBtn = container.querySelector('#addRmdBtn');
+  if (addBtn) addBtn.addEventListener('click', () => openReminderForm());
+
+  // 推送通知
+  const notifBtn = container.querySelector('#notifBtn');
+  if (notifBtn) {
+    notifBtn.addEventListener('click', () => {
+      if (!('Notification' in window)) { toast('您的浏览器不支持推送通知'); return; }
+      if (Notification.permission === 'denied') { toast('请在浏览器设置中允许通知权限'); return; }
+      requestNotificationPermission();
+    });
+  }
+
+  // 重置按钮
+  const rb = container.querySelector('#resetMaintBtn');
+  if (rb) rb.addEventListener('click', () => resetMaintenanceData(container));
+}
+
+/** 重置保养数据（删除 reminders 仓储中的数据 + 清除 seed 标记，下次进入自动重新初始化） */
+async function resetMaintenanceData(container) {
+  if (!confirm('确定要重置保养数据吗？\n\n这将清除所有自定义保养提醒并恢复为默认列表。\n加油记录和车辆信息不受影响。')) return;
+  try {
+    // 删除所有 reminder 记录
+    const all = await dbGetAll('reminders');
+    for (const r of all) await dbDel('reminders', r.id);
+    // 清除 seed 标记
+    await setSetting('remindersSeeded', false);
+    console.log('[红旗] 保养数据已重置');
+    toast('保养数据已重置');
+    await refreshView();
+  } catch (e) {
+    console.error('[红旗] 重置失败:', e);
+    toast('重置失败: ' + (e.message || e));
+  }
+}
+
+/**
+ * 主渲染函数 — 保证不卡死的核心设计：
+ *
+ * ① 先写一个带已知 ID 的"加载中"DOM 元素
+ * ② 所有后续代码（try 成功 / catch 异常 / DB 死亡）都调用 replaceLoading() 替换它
+ * ③ replaceLoading 用 insertAdjacentHTML + remove，即使多次调用也安全（第二次找不到元素就替换整个 innerHTML）
+ */
+async function renderMaintenance(container) {
+  const LID = '___maintLoading___';
+
+  // ① 写入加载态（必定执行）
+  container.innerHTML = '<h2>保养提醒</h2><div id="' + LID + '" style="text-align:center;padding:40px 0;color:var(--muted);font-size:14px">⏳ 加载中...</div>';
+
+  /**
+   * ② 保证替换加载态的函数
+   * - 找到 #LID 元素 → 在它前面插入新 HTML → 删除加载元素
+   * - 找不到（已被替换过）→ 直接覆盖整个容器内容
+   */
+  function replaceLoading(htmlFragment) {
+    const el = document.getElementById(LID);
+    if (el) {
+      el.insertAdjacentHTML('beforebegin', htmlFragment);
+      el.remove();
+    } else {
+      container.innerHTML = '<h2>保养提醒</h2>' + htmlFragment;
+    }
+  }
+
+  // ③ 整体 try/catch：任何未预期的错误都走错误态
+  try {
+    // ── Step 0: DB 健康检查（2秒超时）──
+    let dbAlive = false;
+    try {
+      await withTimeout(dbGetAll('settings'), 2000, 'DB健康检查');
+      dbAlive = true;
+    } catch (e) {
+      console.warn('[红旗] 数据库不可用（健康检查超时/失败）:', e.message || e);
+      dbAlive = false;
+    }
+
+    let reminders = [];
+    let latestOdo = null;
+
+    if (dbAlive) {
+      // ── Step 1: 读取 reminders（3秒超时）──
+      try {
+        reminders = await withTimeout(dbGetAll('reminders'), 3000, '读取保养数据');
+      } catch (e) {
+        console.warn('[红旗] reminders 首次读取失败，尝试初始化:', e.message || e);
+        try {
+          await withTimeout(seedRemindersIfNeeded(), 3000, '初始化保养');
+          reminders = await withTimeout(dbGetAll('reminders'), 2000, '重读保养').catch(() => []);
+        } catch (e2) {
+          console.error('[红旗] reminders 仍不可用:', e2.message || e2);
+          reminders = [];
+        }
+      }
+
+      // ── Step 2: 列表为空 → 补充默认项 ──
+      if (reminders.length === 0) {
+        try {
+          await withTimeout(seedRemindersIfNeeded(), 3000, '补充默认');
+          reminders = await withTimeout(dbGetAll('reminders'), 2000, '重读').catch(() => []);
+        } catch (e) { /* 保持空 */ }
+      }
+
+      // ── Step 3: 读取最新里程（非关键，失败=null）──
+      try {
+        latestOdo = await withTimeout(getLatestOdometer(), 3000, '读取里程');
+      } catch (e) {
+        console.warn('[红旗] 读里程失败，状态按"未设置"处理:', e.message || e);
+        latestOdo = null;
+      }
+    } else {
+      // ── DB 完全不可用：硬编码 4 条默认模板作为只读展示 ──
+      console.warn('[红旗] DB不可用，使用硬编码默认数据渲染保养页');
+      reminders = REMINDER_TEMPLATES.map(function (t) {
+        return {
+          id: '__fb_' + t.key, type: t.key, label: t.label,
+          interval: t.defaultInterval, unit: t.unit,
+          lastOdo: null, lastDate: null, _isFallback: true
+        };
+      });
+    }
+
+    // ── Step 4: 构建 HTML（纯同步，100% 不抛错）并替换加载态 ──
+    const html = buildMaintenanceHTML(reminders, latestOdo, !dbAlive);
+    replaceLoading(html);
+
+    // ── Step 5: 绑定事件 ──
+    bindMaintenanceEvents(container, !dbAlive);
+
+  } catch (err) {
+    // ④ 任何未预期异常 → 错误态（含重试 + 重置按钮）
+    console.error('[红旗] 保养页渲染异常（最终兜底）:', err && (err.message || err));
+    replaceLoading(buildErrorHTML(err));
+
+    // 错误态下的按钮绑定
+    const retryBtn = container.querySelector('#maintRetry');
+    if (retryBtn) retryBtn.addEventListener('click', function () { renderMaintenance(container); });
+    const resetBtn2 = container.querySelector('#resetMaintBtn2');
+    if (resetBtn2) resetBtn2.addEventListener('click', function () { resetMaintenanceData(container); });
   }
 }
 
@@ -306,7 +434,6 @@ function openReminderForm(editId) {
   `;
   openSheet(editId ? '编辑提醒' : '添加保养提醒', wrap);
 
-  // 回填
   if (editId) {
     dbGet('reminders', editId).then((r) => {
       if (!r) return;
