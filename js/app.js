@@ -168,26 +168,24 @@ async function openCarProfileForm() {
   wrap.appendChild(save);
 }
 
-/* 首页顶部紧凑版陪伴横幅：标准融合 3D 车模（第三波） + 情绪价值
- * 左侧为可旋转 3D 车模（无 WebGL/离线时降级为静态头像），右侧保留车名/状态语/温暖语；点击文字区进入「我的」页
+/* 首页顶部陪伴横幅：左半边主角静态图 + 情绪价值
+ * 左侧为用户上传的爱车主图（无图则用大号 emoji 占位），右侧保留车名/状态语/温暖语；整卡点击进入「我的」页
  */
 async function renderCompanionshipBanner() {
   const car = await getCurrentCar();
   const recs = await getCarRecords();
   const c = computeCompanionship(car, recs);
   const banner = document.createElement('div');
-  banner.className = 'companionship-banner home3d-banner';
+  banner.className = 'companionship-banner';
   banner.style.cssText = 'background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-radius:16px;padding:14px 16px;margin-bottom:14px;position:relative;overflow:hidden';
-  const avatarHtml = (car.avatar && car.avatar.startsWith('data:'))
-    ? `<img src="${escapeHtml(car.avatar)}" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover">`
-    : `<span style="font-size:40px;line-height:1">${escapeHtml(car.avatar || '🚗')}</span>`;
 
-  // 左侧 3D 区块（含降级 fallback：静态头像）
+  // 左侧：爱车主图（用户上传的静态图片；无图则用大号 emoji 占位）—— 保持"左半边主角"
+  const avatarBig = (car.avatar && car.avatar.startsWith('data:'))
+    ? `<img src="${escapeHtml(car.avatar)}" alt="" style="width:100%;height:100%;object-fit:cover;display:block">`
+    : `<span style="font-size:54px;line-height:1">${escapeHtml(car.avatar || '🚗')}</span>`;
   const leftHtml = `
-    <div class="home3d-wrap" style="width:46%;height:104px;flex-shrink:0;position:relative;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center">
-      <canvas class="home3d-canvas" style="width:100%;height:100%;display:block;touch-action:none"></canvas>
-      <div class="home3d-fallback" style="display:none;align-items:center;justify-content:center;width:100%;height:100%">${avatarHtml}</div>
-      <div class="home3d-hint" style="position:absolute;left:6px;bottom:5px;font-size:10px;background:rgba(0,0,0,.35);padding:2px 6px;border-radius:8px;pointer-events:none">🖐 拖动旋转</div>
+    <div class="car-photo-wrap" style="width:46%;height:104px;flex-shrink:0;position:relative;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.1);display:flex;align-items:center;justify-content:center">
+      ${avatarBig}
     </div>`;
 
   let rightHtml;
@@ -207,15 +205,13 @@ async function renderCompanionshipBanner() {
 
   banner.innerHTML = `<div style="display:flex;align-items:center;gap:12px">${leftHtml}<div style="flex:1;min-width:0">${rightHtml}</div></div>`;
 
-  // 点击文字区进入「我的」页（3D 区域阻止冒泡，避免拖动旋转时误跳转）
+  // 整卡点击进入「我的」页（可在此上传/更换爱车主图）
   banner.addEventListener('click', () => { location.hash = '#me'; });
-  const wrap3d = banner.querySelector('.home3d-wrap');
-  if (wrap3d) wrap3d.addEventListener('click', (e) => e.stopPropagation());
   return banner;
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.11';
+const APP_VERSION = '2.0.12';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
@@ -265,8 +261,6 @@ function setActiveTab(tab) {
 let routeSeq = 0; // 渲染序列号：保证只有最新的路由结果生效，避免并发渲染互相覆盖/卡死
 async function route(tab) {
   if (!TABS[tab]) tab = 'fuel';
-  // 切页时释放首页 3D 渲染，避免 WebGL 上下文泄漏
-  if (typeof window.__home3dDispose === 'function') { try { window.__home3dDispose(); } catch (e) {} }
   const seq = ++routeSeq;
   currentTab = tab;
   // 静默同步 hash（replaceState 不触发 hashchange，避免和点击路由重复/冲突）
