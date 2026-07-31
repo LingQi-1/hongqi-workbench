@@ -1,7 +1,7 @@
 /* IndexedDB wrapper + shared helpers for 我的红旗 PWA */
 
 const DB_NAME = 'wohongqi';
-const DB_VER = 4;
+const DB_VER = 5;
 let _db = null;
 
 function openDB() {
@@ -19,7 +19,21 @@ function openDB() {
       if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
       if (!db.objectStoreNames.contains('reminders')) db.createObjectStore('reminders', { keyPath: 'id' });
     };
-    req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
+    req.onsuccess = (e) => {
+      _db = e.target.result;
+      // 自愈：确认关键仓储存在，不存在则升版本重建
+      const requiredStores = ['cars', 'records', 'settings', 'reminders'];
+      const missing = requiredStores.filter(s => !_db.objectStoreNames.contains(s));
+      if (missing.length > 0) {
+        console.warn('[红旗] 缺少仓储:', missing.join(', '), '→ 升版本重建');
+        _db.close();
+        _db = null;
+        // 递归以更高版本打开，触发 onupgradeneeded
+        openDB().then(resolve).catch(reject);
+        return;
+      }
+      resolve(_db);
+    };
     req.onerror = (e) => reject(e.target.error);
   });
 }
