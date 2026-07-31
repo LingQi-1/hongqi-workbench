@@ -168,40 +168,54 @@ async function openCarProfileForm() {
   wrap.appendChild(save);
 }
 
-/* 首页顶部紧凑版陪伴横幅：让情绪价值更常出现（用户诉求：放其他地方） */
+/* 首页顶部紧凑版陪伴横幅：标准融合 3D 车模（第三波） + 情绪价值
+ * 左侧为可旋转 3D 车模（无 WebGL/离线时降级为静态头像），右侧保留车名/状态语/温暖语；点击文字区进入「我的」页
+ */
 async function renderCompanionshipBanner() {
   const car = await getCurrentCar();
   const recs = await getCarRecords();
   const c = computeCompanionship(car, recs);
   const banner = document.createElement('div');
-  banner.className = 'companionship-banner';
-  banner.style.cssText = 'background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-radius:16px;padding:16px 18px;margin-bottom:14px;position:relative;overflow:hidden;cursor:pointer';
+  banner.className = 'companionship-banner home3d-banner';
+  banner.style.cssText = 'background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-radius:16px;padding:14px 16px;margin-bottom:14px;position:relative;overflow:hidden';
   const avatarHtml = (car.avatar && car.avatar.startsWith('data:'))
-    ? `<img src="${car.avatar}" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover;flex-shrink:0">`
-    : `<span style="font-size:42px;line-height:1;flex-shrink:0">${escapeHtml(car.avatar || '🚗')}</span>`;
+    ? `<img src="${escapeHtml(car.avatar)}" alt="" style="width:46px;height:46px;border-radius:50%;object-fit:cover">`
+    : `<span style="font-size:40px;line-height:1">${escapeHtml(car.avatar || '🚗')}</span>`;
+
+  // 左侧 3D 区块（含降级 fallback：静态头像）
+  const leftHtml = `
+    <div class="home3d-wrap" style="width:46%;height:104px;flex-shrink:0;position:relative;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.08);display:flex;align-items:center;justify-content:center">
+      <canvas class="home3d-canvas" style="width:100%;height:100%;display:block;touch-action:none"></canvas>
+      <div class="home3d-fallback" style="display:none;align-items:center;justify-content:center;width:100%;height:100%">${avatarHtml}</div>
+      <div class="home3d-hint" style="position:absolute;left:6px;bottom:5px;font-size:10px;background:rgba(0,0,0,.35);padding:2px 6px;border-radius:8px;pointer-events:none">🖐 拖动旋转</div>
+    </div>`;
+
+  let rightHtml;
   if (c.days == null && c.km == null && c.st.count === 0) {
-    banner.innerHTML = `<div style="display:flex;align-items:center;gap:14px">${avatarHtml}
-      <div style="min-width:0"><div style="font-size:16px;font-weight:600">${escapeHtml(c.carName)}</div>
-      <div style="font-size:13px;opacity:.85;margin-top:4px">去完善爱车档案，开启你们的旅程 →</div></div></div>`;
+    rightHtml = `<div style="font-size:16px;font-weight:600">${escapeHtml(c.carName)}</div>
+      <div style="font-size:13px;opacity:.85;margin-top:5px;line-height:1.45">去完善爱车档案，开启你们的旅程 →</div>`;
   } else {
     const kmDisp = c.km != null ? (c.km >= 10000 ? (c.km / 10000).toFixed(1) + ' 万公里' : c.km.toFixed(0) + ' 公里') : '';
     const dayPart = c.days != null ? `已陪你 <b>${c.days}</b> 天` : '';
     const kmPart = kmDisp ? `走过 <b>${kmDisp}</b>` : '';
     const sep = (dayPart && kmPart) ? ' · ' : '';
     const line0 = buildWarmLines(c)[0] || '';
-    banner.innerHTML = `<div style="display:flex;align-items:center;gap:14px">${avatarHtml}
-      <div style="flex:1;min-width:0">
-        <div style="font-size:16px;font-weight:600">${escapeHtml(c.carName)}</div>
-        <div style="font-size:13.5px;margin-top:5px;opacity:.95;line-height:1.45">${dayPart}${sep}${kmPart}</div>
-        ${line0 ? `<div style="font-size:12.5px;opacity:.8;margin-top:4px;line-height:1.4">${line0}</div>` : ''}
-      </div></div>`;
+    rightHtml = `<div style="font-size:16px;font-weight:600">${escapeHtml(c.carName)}</div>
+      <div style="font-size:13.5px;margin-top:5px;opacity:.95;line-height:1.4">${dayPart}${sep}${kmPart}</div>
+      ${line0 ? `<div style="font-size:12.5px;opacity:.8;margin-top:4px;line-height:1.35">${line0}</div>` : ''}`;
   }
+
+  banner.innerHTML = `<div style="display:flex;align-items:center;gap:12px">${leftHtml}<div style="flex:1;min-width:0">${rightHtml}</div></div>`;
+
+  // 点击文字区进入「我的」页（3D 区域阻止冒泡，避免拖动旋转时误跳转）
   banner.addEventListener('click', () => { location.hash = '#me'; });
+  const wrap3d = banner.querySelector('.home3d-wrap');
+  if (wrap3d) wrap3d.addEventListener('click', (e) => e.stopPropagation());
   return banner;
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.8';
+const APP_VERSION = '2.0.9';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
@@ -251,6 +265,8 @@ function setActiveTab(tab) {
 let routeSeq = 0; // 渲染序列号：保证只有最新的路由结果生效，避免并发渲染互相覆盖/卡死
 async function route(tab) {
   if (!TABS[tab]) tab = 'fuel';
+  // 切页时释放首页 3D 渲染，避免 WebGL 上下文泄漏
+  if (typeof window.__home3dDispose === 'function') { try { window.__home3dDispose(); } catch (e) {} }
   const seq = ++routeSeq;
   currentTab = tab;
   // 静默同步 hash（replaceState 不触发 hashchange，避免和点击路由重复/冲突）
