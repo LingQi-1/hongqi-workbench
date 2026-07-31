@@ -182,17 +182,18 @@ async function renderCompanionshipBanner() {
   if (c.days == null && c.km == null && c.st.count === 0) {
     banner.innerHTML = `<div style="display:flex;align-items:center;gap:14px">${avatarHtml}
       <div style="min-width:0"><div style="font-size:16px;font-weight:600">${escapeHtml(c.carName)}</div>
-      <div style="font-size:13px;opacity:.85;margin-top:4px">点此编辑爱车档案，记录你们的旅程 →</div></div></div>`;
+      <div style="font-size:13px;opacity:.85;margin-top:4px">去完善爱车档案，开启你们的旅程 →</div></div></div>`;
   } else {
     const kmDisp = c.km != null ? (c.km >= 10000 ? (c.km / 10000).toFixed(1) + ' 万公里' : c.km.toFixed(0) + ' 公里') : '';
     const dayPart = c.days != null ? `已陪你 <b>${c.days}</b> 天` : '';
     const kmPart = kmDisp ? `走过 <b>${kmDisp}</b>` : '';
     const sep = (dayPart && kmPart) ? ' · ' : '';
+    const line0 = buildWarmLines(c)[0] || '';
     banner.innerHTML = `<div style="display:flex;align-items:center;gap:14px">${avatarHtml}
       <div style="flex:1;min-width:0">
         <div style="font-size:16px;font-weight:600">${escapeHtml(c.carName)}</div>
         <div style="font-size:13.5px;margin-top:5px;opacity:.95;line-height:1.45">${dayPart}${sep}${kmPart}</div>
-        <div style="font-size:12.5px;opacity:.8;margin-top:4px;line-height:1.4">${buildWarmLines(c)[0] || ''} · 点此编辑</div>
+        ${line0 ? `<div style="font-size:12.5px;opacity:.8;margin-top:4px;line-height:1.4">${line0}</div>` : ''}
       </div></div>`;
   }
   banner.addEventListener('click', () => { location.hash = '#me'; });
