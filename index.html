@@ -7,6 +7,64 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>我的红旗</title>
+  <!-- 强制版本检测 + 一键更新：每次加载都 no-store 拉最新版本号，落后即弹更新条；点击自动注销旧 SW + 清缓存 + 硬刷新，根治“推了但手机看不到” -->
+  <script>
+  (function () {
+    var BUILD = '2.0.13';
+    try { localStorage.setItem('hongqi_build', BUILD); } catch (e) {}
+    function showUpdateBar(newVer) {
+      function render() {
+        if (document.getElementById('hongqi-update-bar')) return;
+        var bar = document.createElement('div');
+        bar.id = 'hongqi-update-bar';
+        bar.textContent = '🆕 发现新版本 ' + newVer + '，点击更新';
+        bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#C8102E;color:#fff;text-align:center;padding:9px 12px;font-size:14px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.25)';
+        bar.addEventListener('click', function () {
+          try {
+            if (navigator.serviceWorker) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) { regs.forEach(function (r) { r.unregister(); }); });
+            }
+            if (window.caches) {
+              caches.keys().then(function (ks) { ks.forEach(function (k) { caches.delete(k); }); });
+            }
+          } catch (e) {}
+          location.reload(true);
+        });
+        (document.body || document.documentElement).appendChild(bar);
+      }
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', render);
+      else render();
+    }
+    // 1) 版本清单检测（no-store 拉最新，绕过一切缓存层）
+    try {
+      fetch('version.json?_=' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { if (d && d.version && d.version !== BUILD) showUpdateBar(d.version); })
+        .catch(function () {});
+    } catch (e) {}
+    // 2) SW 自动更新：发现新 SW 立即激活并刷新
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          if (!reg) return;
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          reg.addEventListener('updatefound', function () {
+            var nw = reg.installing;
+            if (!nw) return;
+            nw.addEventListener('statechange', function () {
+              if (nw.state === 'installed' && navigator.serviceWorker.controller) nw.postMessage({ type: 'SKIP_WAITING' });
+            });
+          });
+          reg.update().catch(function () {});
+        }).catch(function () {});
+        var reloaded = false;
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (reloaded) return; reloaded = true; location.reload();
+        });
+      });
+    }
+  })();
+  </script>
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="apple-touch-icon" href="icon.svg" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
