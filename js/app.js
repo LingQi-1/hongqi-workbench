@@ -215,7 +215,7 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.10';
+const APP_VERSION = '2.0.11';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
@@ -306,8 +306,28 @@ async function init() {
   bindUI();
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').then((reg) => {
-      if (reg) reg.update().catch(() => {});
+      if (!reg) return;
+      // 已有等待中的新版本 → 立即激活
+      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      // 发现新版本正在安装 → 安装完成后激活
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            nw.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+      reg.update().catch(() => {});
     }).catch(() => {});
+    // 新 SW 接管页面后自动刷新一次，确保加载最新资源（根治 PWA 二次刷新缓存问题：旧 SW 控制下永远拿不到新文件）
+    let __swReloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (__swReloaded) return;
+      __swReloaded = true;
+      location.reload();
+    });
   }
   // 检查保养提醒（延迟2秒等页面渲染完）
   setTimeout(() => checkAndNotifyReminders().catch(() => {}), 2000);
