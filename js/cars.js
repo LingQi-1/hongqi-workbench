@@ -3,7 +3,7 @@
 async function ensureDefaultCar() {
   const cars = await dbGetAll('cars');
   if (cars.length === 0) {
-    const def = { id: uid(), name: '我的红旗', plate: '', color: '#C8102E', createdAt: Date.now() };
+    const def = { id: uid(), name: '我的红旗', plate: '', color: '#C8102E', avatar: '🚗', createdAt: Date.now() };
     await dbPut('cars', def);
     await setSetting('currentCarId', def.id);
     return def;
@@ -31,7 +31,7 @@ async function setCurrentCar(id) {
 }
 
 async function addCar(name) {
-  const car = { id: uid(), name: name || '我的爱车', plate: '', color: '#C8102E', createdAt: Date.now() };
+  const car = { id: uid(), name: name || '我的爱车', plate: '', color: '#C8102E', avatar: '🚗', createdAt: Date.now() };
   await dbPut('cars', car);
   await setCurrentCar(car.id);
   return car;
