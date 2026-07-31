@@ -344,6 +344,7 @@ function openFuelForm(existing) {
 
   const L = wrap.querySelector('#f_l'), A = wrap.querySelector('#f_a'), P = wrap.querySelector('#f_p');
   let lastEdited = null; // 用户最后手动编辑的字段（'f_l'/'f_a'/'f_p'）
+  const clearedFields = new Set(); // 用户主动清空的字段，不自动回填
   function autoDerive(changed) {
     const lv = L.value.trim(), av = A.value.trim(), pv = P.value.trim();
     const lN = parseFloat(lv), aN = parseFloat(av), pN = parseFloat(pv);
@@ -353,8 +354,8 @@ function openFuelForm(existing) {
       const changedId = changed.getAttribute('id');
       // 如果用户清空了某字段，也记录为最后编辑
       const val = changed === L ? lv : changed === A ? av : pv;
-      if (val !== '') lastEdited = changedId;
-      else lastEdited = changedId; // 清空也算编辑，允许后续重新推导
+      if (val !== '') { lastEdited = changedId; clearedFields.delete(changedId); }
+      else { lastEdited = changedId; clearedFields.add(changedId); } // 清空标记：不自动回填
     }
 
     // 统计有效填写数
@@ -366,21 +367,20 @@ function openFuelForm(existing) {
     // 0 或 2 个空 → 不推导（信息不足或用户还在填）
     if (filledCount < 2) return;
 
-    // 确定推导目标：用户正在编辑的字段不覆盖；优先推导非"最后手动编辑"的字段
+    // 确定推导目标：用户正在编辑的字段不覆盖；优先推导非"最后手动编辑"的字段；被用户主动清空的字段也不回填
     const changingId = changed ? changed.getAttribute('id') : null;
     let target = null;
     let val = null;
 
-    if (!hasP && hasL && hasA && lN !== 0) { target = P; val = aN / lN; }       // 单价 = 金额/升数
-    else if (!hasA && hasL && hasP) { target = A; val = lN * pN; }               // 金额 = 升数×单价
-    else if (!hasL && hasA && hasP && pN !== 0) { target = L; val = aN / pN; }   // 升数 = 金额/单价
+    if (!hasP && hasL && hasA && lN !== 0 && !clearedFields.has('f_p')) { target = P; val = aN / lN; }       // 单价 = 金额/升数
+    else if (!hasA && hasL && hasP && !clearedFields.has('f_a')) { target = A; val = lN * pN; }               // 金额 = 升数×单价
+    else if (!hasL && hasA && hasP && pN !== 0 && !clearedFields.has('f_l')) { target = L; val = aN / pN; }   // 升数 = 金额/单价
     else if (filledCount === 3) {
-      // 三字段全满时：重算"非当前编辑且非最后手动编辑"的字段，保证数据一致
-      // 例如用户在改金额(L=23.21,A=200→201,P=8.62)，应更新 P=201/23.21=8.66
+      // 三字段全满时：重算"非当前编辑且非最后手动编辑且未被清空"的字段，保证数据一致
       const candidates = [];
-      if (changingId !== 'f_p' && lastEdited !== 'f_p') candidates.push({ el: P, id: 'f_p', fn: () => aN / lN });
-      if (changingId !== 'f_a' && lastEdited !== 'f_a') candidates.push({ el: A, id: 'f_a', fn: () => lN * pN });
-      if (changingId !== 'f_l' && lastEdited !== 'f_l') candidates.push({ el: L, id: 'f_l', fn: () => pN > 0 ? aN / pN : NaN });
+      if (changingId !== 'f_p' && lastEdited !== 'f_p' && !clearedFields.has('f_p')) candidates.push({ el: P, id: 'f_p', fn: () => aN / lN });
+      if (changingId !== 'f_a' && lastEdited !== 'f_a' && !clearedFields.has('f_a')) candidates.push({ el: A, id: 'f_a', fn: () => lN * pN });
+      if (changingId !== 'f_l' && lastEdited !== 'f_l' && !clearedFields.has('f_l')) candidates.push({ el: L, id: 'f_l', fn: () => pN > 0 ? aN / pN : NaN });
       if (candidates.length > 0) {
         const c = candidates[0]; // 取第一个候选（优先保单价，因为最常被推导）
         val = c.fn();
