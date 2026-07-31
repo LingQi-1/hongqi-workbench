@@ -1,4 +1,4 @@
-const CACHE = 'wohongqi-v21';
+const CACHE = 'wohongqi-v22';
 const ASSETS = [
   './',
   './index.html',
@@ -11,6 +11,7 @@ const ASSETS = [
   './js/report.js',
   './js/maintenance.js',
   './js/app.js',
+  './version.json',
   './manifest.webmanifest',
   './icon.svg'
 ];
