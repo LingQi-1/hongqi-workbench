@@ -8,6 +8,7 @@ const TABS = {
   me: { title: '我的', render: renderMe }
 };
 let currentTab = 'fuel';
+let routingLock = false; // 防止并发路由导致页面卡死
 
 /* ===== 爱车陪伴（情绪价值） ===== */
 /* 计算陪伴数据：优先用「爱车档案」手动填写的 提车日期/总里程，加油记录作兜底 */
@@ -196,34 +197,46 @@ const APP_VERSION = '2.0.7';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
-  container.innerHTML = '<h2>我的</h2>';
+  container.innerHTML = '<h2>我的</h2><div style="text-align:center;padding:20px 0;color:var(--muted)">⏳ 加载中...</div>';
 
-  // ① 车头区（头像 + 昵称 + 第一人称状态语）
-  await renderCarHeader(container);
-  // ② 爱车陪伴卡片（第一人称，情绪价值）
-  await renderCompanionshipCard(container);
-  // ③ 里程碑圆环（累计总里程 + 破千撒花）
-  await renderMilestoneRing(container);
-  // ④ 每日车语
-  await renderDailyQuote(container);
-  // ⑤ 爱车档案（多车管理）
-  await renderCarsSection(container);
-  await renderCarComparison(container);   // 多车对比（2+车时显示）
-  // ⑥ 主题外观切换
-  renderThemeSection(container);
-  // ⑦ 关于 / 版本号
-  const about = document.createElement('div');
-  about.className = 'card';
-  about.innerHTML = `<div class="card-title">关于「我的红旗」</div>
-    <div class="t1" style="font-weight:600">汽车记录工作台 · PWA · v${APP_VERSION}</div>
-    <div class="t2 muted" style="font-size:12px;margin-top:4px">加油记录 · 油价查询 · 养车报表 · 多车管理<br>数据存本机，可云同步永不丢失</div>
-    <div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-      <span class="tag">v${APP_VERSION}</span>
-      <span class="tag" style="--brand-soft:#e8f5e9;--brand:#2e7d32">${APP_BUILD_DATE} 构建</span>
-      <span class="tag" style="--brand-soft:#fff3e0;--brand:#e65100">PWA 离线可用</span>
-    </div>`;
-  container.appendChild(about);
-  renderSyncSection(container);
+  try {
+    // ① 车头区（头像 + 昵称 + 第一人称状态语）
+    await withTimeout(renderCarHeader(container), 3000, '车头区');
+    // ② 爱车陪伴卡片（第一人称，情绪价值）
+    await withTimeout(renderCompanionshipCard(container), 3000, '陪伴卡');
+    // ③ 里程碑圆环（累计总里程 + 破千撒花）
+    await withTimeout(renderMilestoneRing(container), 3000, '里程碑');
+    // ④ 每日车语
+    await renderDailyQuote(container);
+    // ⑤ 爱车档案（多车管理）
+    await renderCarsSection(container);
+    await renderCarComparison(container);   // 多车对比（2+车时显示）
+    // ⑥ 主题外观切换
+    renderThemeSection(container);
+    // ⑦ 关于 / 版本号
+    const about = document.createElement('div');
+    about.className = 'card';
+    about.innerHTML = `<div class="card-title">关于「我的红旗」</div>
+      <div class="t1" style="font-weight:600">汽车记录工作台 · PWA · v${APP_VERSION}</div>
+      <div class="t2 muted" style="font-size:12px;margin-top:4px">加油记录 · 油价查询 · 养车报表 · 多车管理<br>数据存本机，可云同步永不丢失</div>
+      <div style="margin-top:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="tag">v${APP_VERSION}</span>
+        <span class="tag" style="--brand-soft:#e8f5e9;--brand:#2e7d32">${APP_BUILD_DATE} 构建</span>
+        <span class="tag" style="--brand-soft:#fff3e0;--brand:#e65100">PWA 离线可用</span>
+      </div>`;
+    container.appendChild(about);
+    renderSyncSection(container);
+
+    // 清掉可能残留的加载提示
+    const loading = container.querySelector('div:has(> :only-child:contains("加载中"))');
+    // 简单方式：移除第一个只含"加载中"文字的 div
+    for (const el of container.querySelectorAll('div')) {
+      if (el.textContent.trim() === '⏳ 加载中...') { el.remove(); break; }
+    }
+  } catch (e) {
+    console.error('[红旗] 我的页渲染异常:', e);
+    container.innerHTML = '<h2>我的</h2><div class="card"><p style="color:var(--muted);padding:12px">页面加载遇到问题，请<a href="#" onclick="location.reload()">刷新重试</a></p><button class="btn" onclick="location.reload()" style="margin-top:8px">🔄 刷新页面</button></div>';
+  }
 }
 
 function setActiveTab(tab) {
@@ -232,19 +245,32 @@ function setActiveTab(tab) {
 
 async function route(tab) {
   if (!TABS[tab]) tab = 'fuel';
-  currentTab = tab;
-  $('#topTitle').textContent = TABS[tab].title;
-  setActiveTab(tab);
-  const view = $('#view');
-  view.innerHTML = '';
-  await TABS[tab].render(view);
+  // 防并发：如果正在路由中，等当前路由完成后再路由到最新目标
+  if (routingLock) { currentTab = tab; return; }
+  routingLock = true;
+  try {
+    currentTab = tab;
+    $('#topTitle').textContent = TABS[tab].title;
+    setActiveTab(tab);
+    const view = $('#view');
+    view.innerHTML = '';
+    await TABS[tab].render(view);
+  } finally {
+    routingLock = false;
+    // 如果在渲染期间有新的目标tab被设置，立即路由过去
+    if (currentTab !== tab) route(currentTab);
+  }
 }
 
 async function refreshView() { await route(currentTab); }
 
 function bindUI() {
   document.querySelectorAll('.tab').forEach((b) => {
-    b.addEventListener('click', () => { location.hash = b.getAttribute('data-tab'); });
+    b.addEventListener('click', () => {
+      const t = b.getAttribute('data-tab');
+      location.hash = t; // hash 用于 PWA 恢复
+      route(t);           // 直接调用确保立即响应（不依赖 hashchange 时序）
+    });
   });
   $('#sheetClose').addEventListener('click', closeSheet);
   $('#sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') closeSheet(); });
@@ -344,21 +370,32 @@ async function renderCarHeader(container) {
   container.appendChild(header);
 }
 
-/* 第一人称状态语（基于真实数据动态生成） */
+/* 第一人称状态语（基于真实数据动态生成）—— 带超时保护，绝不卡住页面 */
 async function buildCarStatusLine(car, recs) {
-  // 保养到期优先提示
+  const DEFAULT_STATUS = '点这里编辑我，给我起个名字吧 💬';
+  // 保养到期优先提示（2秒超时）
+  let hasDue = false;
   try {
-    const reminders = await dbGetAll('reminders');
-    const odo = await getLatestOdometerSafe();
-    for (const r of reminders) { if (typeof checkReminderDue === 'function' && checkReminderDue(r, odo)) return '我有点饿了，该去做保养咯 🔧'; }
-  } catch (e) {}
+    const reminders = await withTimeout(dbGetAll('reminders'), 2000, '读取保养提醒');
+    const odo = await withTimeout(getLatestOdometerSafe(), 1500, '读取里程');
+    for (const r of reminders) { if (typeof checkReminderDue === 'function' && checkReminderDue(r, odo)) { hasDue = true; break; } }
+  } catch (e) { /* 超时或失败，跳过保养检查 */ }
+  if (hasDue) return '我有点饿了，该去做保养咯 🔧';
   // 最近一次加油油号
   const sorted = [...recs].filter(r => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
   const last = sorted[sorted.length - 1];
   const grade = last && last.grade ? last.grade : '';
   if (grade) return `今天主人又带我喝 ${grade} 号油啦，真香~`;
   if (car && car.buyDate) return '今天也要开开心心陪主人出门呀 ✨';
-  return '点这里编辑我，给我起个名字吧 💬';
+  return DEFAULT_STATUS;
+}
+
+/* 安全超时工具（与 maintenance.js 共用逻辑） */
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error((label || '操作') + ' 超时')), ms);
+    Promise.resolve(promise).then(resolve).catch(reject).finally(() => clearTimeout(t));
+  });
 }
 
 /* 安全读取最新里程（不依赖 maintenance.js 的实现） */
