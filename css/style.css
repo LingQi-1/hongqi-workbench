@@ -518,9 +518,9 @@ table.tbl th { background: var(--bg); color: var(--muted); font-weight: 500; }
 }
 .car-header:active { transform: scale(.99); }
 .car-avatar {
-  width: 64px; height: 64px; border-radius: 50%; flex-shrink: 0;
+  width: 82px; height: 82px; border-radius: 50%; flex-shrink: 0;
   background: rgba(255,255,255,.22); display: flex; align-items: center; justify-content: center;
-  font-size: 34px; overflow: hidden;
+  font-size: 44px; line-height: 1; overflow: hidden;
 }
 .car-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .car-head-info { flex: 1; min-width: 0; }
