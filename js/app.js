@@ -175,17 +175,23 @@ async function renderCompanionshipBanner() {
   const c = computeCompanionship(car, recs);
   const banner = document.createElement('div');
   banner.className = 'companionship-banner';
-  banner.style.cssText = 'background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-radius:14px;padding:13px 16px;margin-bottom:12px;position:relative;overflow:hidden;cursor:pointer';
+  banner.style.cssText = 'background:linear-gradient(135deg,var(--brand),var(--brand-dark));color:#fff;border-radius:16px;padding:18px 18px;margin-bottom:14px;position:relative;overflow:hidden;cursor:pointer';
+  const avatarHtml = (car.avatar && car.avatar.startsWith('data:'))
+    ? `<img src="${car.avatar}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;display:block">`
+    : `<span style="font-size:28px;line-height:1;display:block">${escapeHtml(car.avatar || '🚗')}</span>`;
   if (c.days == null && c.km == null && c.st.count === 0) {
-    banner.innerHTML = `<div style="font-size:14px;font-weight:600">🚗 ${escapeHtml(c.carName)}</div><div style="font-size:12px;opacity:.85;margin-top:4px">点此编辑爱车档案，记录你们的旅程 →</div>`;
+    banner.innerHTML = `${avatarHtml}
+      <div style="font-size:16px;font-weight:600;margin-top:10px">${escapeHtml(c.carName)}</div>
+      <div style="font-size:13px;opacity:.85;margin-top:6px">点此编辑爱车档案，记录你们的旅程 →</div>`;
   } else {
     const kmDisp = c.km != null ? (c.km >= 10000 ? (c.km / 10000).toFixed(1) + ' 万公里' : c.km.toFixed(0) + ' 公里') : '';
     const dayPart = c.days != null ? `已陪你 <b>${c.days}</b> 天` : '';
     const kmPart = kmDisp ? `走过 <b>${kmDisp}</b>` : '';
     const sep = (dayPart && kmPart) ? ' · ' : '';
-    banner.innerHTML = `<div style="font-size:14px;font-weight:600">🚗 ${escapeHtml(c.carName)}</div>
-      <div style="font-size:13px;margin-top:6px;opacity:.95">${dayPart}${sep}${kmPart}</div>
-      <div style="font-size:11px;opacity:.8;margin-top:4px">${buildWarmLines(c)[0] || ''} · 点此编辑</div>`;
+    banner.innerHTML = `${avatarHtml}
+      <div style="font-size:17px;font-weight:600;margin-top:10px">${escapeHtml(c.carName)}</div>
+      <div style="font-size:14px;margin-top:8px;opacity:.95;line-height:1.5">${dayPart}${sep}${kmPart}</div>
+      <div style="font-size:12.5px;opacity:.8;margin-top:6px;line-height:1.4">${buildWarmLines(c)[0] || ''} · 点此编辑</div>`;
   }
   banner.addEventListener('click', () => { location.hash = '#me'; });
   return banner;
