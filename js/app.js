@@ -211,7 +211,7 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.13';
+const APP_VERSION = '2.0.14';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
@@ -393,7 +393,7 @@ async function buildCarStatusLine(car, recs) {
   const sorted = [...recs].filter(r => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
   const last = sorted[sorted.length - 1];
   const grade = last && last.grade ? last.grade : '';
-  if (grade) return `今天主人又带我喝 ${grade} 号油啦，真香~`;
+  if (grade) return `今天主人又带我喝 ${grade}油啦，真香~`;
   if (car && car.buyDate) return '今天也要开开心心陪主人出门呀 ✨';
   return DEFAULT_STATUS;
 }
