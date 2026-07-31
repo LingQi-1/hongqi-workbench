@@ -1,4 +1,4 @@
-const CACHE = 'wohongqi-v19';
+const CACHE = 'wohongqi-v20';
 const ASSETS = [
   './',
   './index.html',
@@ -47,4 +47,9 @@ self.addEventListener('fetch', (e) => {
       })
       .catch(() => caches.match(e.request).then((c) => c || caches.match('./index.html')))
   );
+});
+
+// 收到页面 SKIP_WAITING 消息立即激活新版本
+self.addEventListener('message', (e) => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
