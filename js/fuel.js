@@ -246,7 +246,7 @@ async function renderFuel(container) {
     for (const r of recs) {
       const d = r.date ? new Date(r.date + 'T00:00:00') : null;
       const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-      const dateStr = d ? `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${weekDays[d.getDay()]}` : r.date || '未知';
+      const dateStr = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${weekDays[d.getDay()]}` : r.date || '未知';
       const odoStr = r.odometer ? `里程 ${Number(r.odometer).toLocaleString()} km` : '';
       const lit = r.liters != null && !isNaN(parseFloat(r.liters)) ? parseFloat(r.liters).toFixed(1) + ' L' : '';
       const ppl = r.pricePerL != null && !isNaN(parseFloat(r.pricePerL)) ? '¥' + parseFloat(r.pricePerL).toFixed(2) + '/L' : '';
