@@ -215,7 +215,7 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.9';
+const APP_VERSION = '2.0.10';
 const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
