@@ -14,17 +14,21 @@ window.initHome3D = async function (canvas, opts = {}) {
     try { window.__home3dDispose(); } catch (e) {}
   }
 
-  let THREE, OrbitControls, GLTFLoader, DRACOLoader;
+  let THREE, OrbitControls, GLTFLoader;
   try {
     THREE = await import('three');
     ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
     ({ GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'));
-    ({ DRACOLoader } = await import('three/addons/loaders/DRACOLoader.js'));
   } catch (e) {
     console.warn('[红旗] Three.js 加载失败（可能离线），降级为静态头像', e);
     showFallback();
     return;
   }
+  // DRACOLoader 为可选：仅当真实车模带 Draco 压缩时才需要；加载失败不影响非 Draco 模型
+  let DRACOLoader = null;
+  try {
+    ({ DRACOLoader } = await import('three/addons/loaders/DRACOLoader.js'));
+  } catch (e) { /* 非 Draco 模型无需解码器，忽略 */ }
 
   const wrap = canvas.parentElement;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -108,12 +112,15 @@ window.initHome3D = async function (canvas, opts = {}) {
   (async () => {
     try {
       const loader = new GLTFLoader();
-      // 配置 Draco 解码器（图生3D 产出的 GLB 经 gltf-transform 做了 Draco 压缩，必须配解码器）
-      const dracoLoader = new DRACOLoader();
-      dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
-      dracoLoader.setDecoderConfig({ type: 'js' });
-      loader.setDRACOLoader(dracoLoader);
-      const gltf = await loader.loadAsync('models/car.glb', () => {});
+      // 仅当存在 DRACOLoader 且模型带 Draco 压缩时才配置（当前真实车模为非 Draco，无需解码器）
+      if (DRACOLoader) {
+        const dracoLoader = new DRACOLoader();
+        dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+        dracoLoader.setDecoderConfig({ type: 'js' });
+        loader.setDRACOLoader(dracoLoader);
+      }
+      // 追加 ?v=2 绕过手机端 HTTP/CDN/SW 各级缓存，确保加载最新真实车模
+      const gltf = await loader.loadAsync('models/car.glb?v=2', () => {});
       while (carHolder.children.length) carHolder.remove(carHolder.children[0]);
       const model = gltf.scene;
       const box = new THREE.Box3().setFromObject(model);
