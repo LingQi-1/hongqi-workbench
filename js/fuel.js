@@ -137,18 +137,28 @@ async function renderFuel(container) {
 
   html += '<button class="btn" id="addFuelBtn" style="margin:14px 0">+ 添加加油记录</button>';
 
-  // 列表
+  // 列表（大卡片样式）
   if (recs.length === 0) {
     html += '<div class="empty">还没有加油记录，点上面按钮添加第一条</div>';
   } else {
-    html += '<div class="list">';
+    html += '<div class="fuel-list">';
     for (const r of recs) {
-      html += `<div class="item">
-        <div class="main">
-          <div class="t1">${escapeHtml(r.grade)} · ${fmtMoney(r.amount)} 元</div>
-          <div class="t2">${r.date} · ${(r.liters != null && !isNaN(parseFloat(r.liters))) ? parseFloat(r.liters).toFixed(2) + ' L' : '— L'} · ${(r.pricePerL != null && !isNaN(parseFloat(r.pricePerL))) ? '¥' + parseFloat(r.pricePerL).toFixed(2) + '/L' : '— /L'}${r.odometer ? ' · 里程 ' + escapeHtml(r.odometer) + ' km' : ''}</div>
+      const d = r.date ? new Date(r.date + 'T00:00:00') : null;
+      const weekDays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+      const dateStr = d ? `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${weekDays[d.getDay()]}` : r.date || '未知';
+      const odoStr = r.odometer ? `里程 ${Number(r.odometer).toLocaleString()} km` : '';
+      const lit = r.liters != null && !isNaN(parseFloat(r.liters)) ? parseFloat(r.liters).toFixed(1) + ' L' : '';
+      const ppl = r.pricePerL != null && !isNaN(parseFloat(r.pricePerL)) ? '¥' + parseFloat(r.pricePerL).toFixed(2) + '/L' : '';
+      const subInfo = [odoStr, lit, ppl].filter(Boolean).join(' · ');
+      html += `<div class="fuel-card" data-id="${r.id}">
+        <div class="fuel-card-left">
+          <div class="fuel-card-date">${dateStr}</div>
+          <div class="fuel-card-sub">${subInfo || '—'}</div>
         </div>
-        <span class="item del" data-del="${r.id}">&times;</span>
+        <div class="fuel-card-right">
+          <div class="fuel-card-amt">¥${fmtMoney(r.amount)}</div>
+        </div>
+        <span class="fuel-card-del" data-del="${r.id}">&times;</span>
       </div>`;
     }
     html += '</div>';
