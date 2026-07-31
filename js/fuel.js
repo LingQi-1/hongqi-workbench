@@ -277,9 +277,15 @@ async function renderFuel(container) {
 
   container.querySelector('#addFuelBtn').addEventListener('click', openFuelForm);
 
-  // 首页顶部：爱车陪伴横幅（情绪价值，独立于加油记录）
+  // 首页顶部：爱车陪伴横幅（标准融合 3D 车模 + 情绪价值）
   const banner = await renderCompanionshipBanner();
-  if (banner) container.insertBefore(banner, container.firstChild);
+  if (banner) {
+    container.insertBefore(banner, container.firstChild);
+    const c3d = banner.querySelector('.home3d-canvas');
+    if (c3d && typeof window.initHome3D === 'function') {
+      window.initHome3D(c3d, { fallback: banner.querySelector('.home3d-fallback') }).catch(() => {});
+    }
+  }
 
   container.querySelectorAll('[data-del]').forEach((b) => {
     b.addEventListener('click', async (e) => {
