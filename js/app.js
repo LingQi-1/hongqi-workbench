@@ -162,8 +162,8 @@ async function renderCompanionshipBanner() {
 }
 
 /* ===== APP 版本号 ===== */
-const APP_VERSION = '2.0.3';
-const APP_BUILD_DATE = '2026-07-30';
+const APP_VERSION = '2.0.4';
+const APP_BUILD_DATE = '2026-07-31';
 
 async function renderMe(container) {
   container.innerHTML = '<h2>我的</h2>';
