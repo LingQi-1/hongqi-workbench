@@ -250,7 +250,8 @@ async function renderFuel(container) {
       const odoStr = r.odometer ? `里程 ${Number(r.odometer).toLocaleString()} km` : '';
       const lit = r.liters != null && !isNaN(parseFloat(r.liters)) ? parseFloat(r.liters).toFixed(1) + ' L' : '';
       const ppl = r.pricePerL != null && !isNaN(parseFloat(r.pricePerL)) ? '¥' + parseFloat(r.pricePerL).toFixed(2) + '/L' : '';
-      const subInfo = [odoStr, lit, ppl].filter(Boolean).join(' · ');
+      const grade = r.grade || '';
+      const subInfo = [odoStr, grade, lit, ppl].filter(Boolean).join(' · ');
       html += `<div class="fuel-card" data-id="${r.id}">
         <div class="fuel-card-left">
           <div class="fuel-card-date">${dateStr}</div>
