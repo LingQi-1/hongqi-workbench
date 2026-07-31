@@ -14,11 +14,12 @@ window.initHome3D = async function (canvas, opts = {}) {
     try { window.__home3dDispose(); } catch (e) {}
   }
 
-  let THREE, OrbitControls, GLTFLoader;
+  let THREE, OrbitControls, GLTFLoader, DRACOLoader;
   try {
     THREE = await import('three');
     ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
     ({ GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js'));
+    ({ DRACOLoader } = await import('three/addons/loaders/DRACOLoader.js'));
   } catch (e) {
     console.warn('[红旗] Three.js 加载失败（可能离线），降级为静态头像', e);
     showFallback();
@@ -107,6 +108,11 @@ window.initHome3D = async function (canvas, opts = {}) {
   (async () => {
     try {
       const loader = new GLTFLoader();
+      // 配置 Draco 解码器（图生3D 产出的 GLB 经 gltf-transform 做了 Draco 压缩，必须配解码器）
+      const dracoLoader = new DRACOLoader();
+      dracoLoader.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/');
+      dracoLoader.setDecoderConfig({ type: 'js' });
+      loader.setDRACOLoader(dracoLoader);
       const gltf = await loader.loadAsync('models/car.glb', () => {});
       while (carHolder.children.length) carHolder.remove(carHolder.children[0]);
       const model = gltf.scene;
