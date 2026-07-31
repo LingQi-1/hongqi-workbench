@@ -162,102 +162,130 @@ async function getLatestOdometer() {
   return Math.max(...carRecs.map((r) => parseFloat(r.odometer)));
 }
 
+// 安全超时：任何 await 挂起超过指定毫秒，强制 reject，绝不卡死在"加载中"
+function withTimeout(promise, ms, label) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error((label || '操作') + ' 超时')), ms);
+    Promise.resolve(promise).then(resolve, reject).finally(() => clearTimeout(t));
+  });
+}
+
 async function renderMaintenance(container) {
-  // 先显示加载态
-  container.innerHTML = '<h2>保养提醒</h2><div style="text-align:center;padding:40px 0;color:var(--muted);font-size:14px">⏳ 加载中...</div>';
+  // 先显示加载态（带超时提示）
+  container.innerHTML = '<h2>保养提醒</h2><div id="maintLoading" style="text-align:center;padding:40px 0;color:var(--muted);font-size:14px">⏳ 加载中...</div>';
 
-  let reminders = [];
-  try { reminders = await dbGetAll('reminders'); }
-  catch (e) {
-    console.warn('[红旗] reminders 首次读取失败，尝试 seed:', e.message || e);
-    // 仓储可能不存在，先 seed（seed 内部会再尝试读，db.js 自愈会重建仓储）
-    try { await seedRemindersIfNeeded(); reminders = await dbGetAll('reminders'); }
-    catch (e2) {
-      console.error('[红旗] reminders 仍然不可用:', e2.message || e2);
-      reminders = [];
+  // 整页渲染包在 try/catch 内：任意一个 await 抛错都不会卡死在"加载中"
+  try {
+    let reminders = [];
+    try { reminders = await withTimeout(dbGetAll('reminders'), 4000, '读取保养'); }
+    catch (e) {
+      console.warn('[红旗] reminders 首次读取失败，尝试 seed:', e.message || e);
+      // 仓储可能不存在，先 seed（seed 内部会再尝试读，db.js 自愈会重建仓储）
+      try {
+        await seedRemindersIfNeeded();
+        reminders = await withTimeout(dbGetAll('reminders'), 4000, '读取保养').catch(() => []);
+      } catch (e2) {
+        console.error('[红旗] reminders 仍然不可用:', e2.message || e2);
+        reminders = [];
+      }
     }
-  }
 
-  // 自愈：列表为空时补填充默认保养项
-  if (reminders.length === 0) {
-    try {
-      await seedRemindersIfNeeded();
-      reminders = await dbGetAll('reminders').catch(() => []);
-    } catch (e) { /* 最终兜底，显示空态 */ }
-  }
+    // 自愈：列表为空时补填充默认保养项
+    if (reminders.length === 0) {
+      try {
+        await seedRemindersIfNeeded();
+        reminders = await withTimeout(dbGetAll('reminders'), 4000, '读取保养').catch(() => []);
+      } catch (e) { /* 最终兜底，显示空态 */ }
+    }
 
-  const latestOdo = await getLatestOdometer();
+    // 读取最新里程（用于判断是否到期）—— 失败也不拖垮页面，latestOdo 置 null
+    let latestOdo = null;
+    try { latestOdo = await withTimeout(getLatestOdometer(), 4000, '读取里程'); }
+    catch (e) { console.warn('[红旗] 读里程失败，状态按"未设置"处理:', e.message || e); }
 
-  let html = '<h2>保养提醒</h2>';
-  html += '<div class="card"><div class="card-title">🔔 我的保养计划</div>';
+    let html = '<h2>保养提醒</h2>';
+    html += '<div class="card"><div class="card-title">🔔 我的保养计划</div>';
 
-  // 状态总览
-  let urgentCount = 0;
-  for (const r of reminders) {
-    if (checkReminderDue(r, latestOdo)) urgentCount++;
-  }
-  if (urgentCount > 0) {
-    html += `<div class="info-line" style="background:#fef3cd;color:#856404;border-color:#ffc107">⚠️ 有 ${urgentCount} 项保养已到期或即将到期，请检查！</div>`;
-  } else if (reminders.length > 0) {
-    html += `<div class="info-line" style="background:var(--brand-soft);color:var(--brand);border-color:var(--brand)">✅ 保养计划正常，暂无到期项</div>`;
-  }
-
-  // 列表
-  if (reminders.length === 0) {
-    html += '<div class="muted" style="font-size:13px;padding:10px 0">暂未添加保养提醒，点击下方按钮添加。</div>';
-  } else {
+    // 状态总览
+    let urgentCount = 0;
     for (const r of reminders) {
-      const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
-      const st = formatReminderStatus(r, latestOdo);
-      html += `<div class="item" data-rid="${r.id}" style="cursor:pointer">
-        <span style="font-size:22px">${tpl.icon || '📌'}</span>
-        <div class="main">
-          <div class="t1">${escapeHtml(r.label || tpl.label || r.type)}</div>
-          <div class="t2" style="${st.urgent && !st.ok ? 'color:var(--brand);font-weight:600' : (st.urgent ? 'color:#b8860b' : '')}">${st.text}</div>
-        </div>
-        <span class="del" data-rid="${r.id}">&times;</span>
-      </div>`;
+      if (checkReminderDue(r, latestOdo)) urgentCount++;
     }
-  }
+    if (urgentCount > 0) {
+      html += `<div class="info-line" style="background:#fef3cd;color:#856404;border-color:#ffc107">⚠️ 有 ${urgentCount} 项保养已到期或即将到期，请检查！</div>`;
+    } else if (reminders.length > 0) {
+      html += `<div class="info-line" style="background:var(--brand-soft);color:var(--brand);border-color:var(--brand)">✅ 保养计划正常，暂无到期项</div>`;
+    }
 
-  html += `<button class="btn" id="addRmdBtn" style="margin-top:12px">+ 添加保养提醒</button>`;
+    // 列表
+    if (reminders.length === 0) {
+      html += '<div class="muted" style="font-size:13px;padding:10px 0">暂未添加保养提醒，点击下方按钮添加。</div>';
+    } else {
+      for (const r of reminders) {
+        const tpl = REMINDER_TEMPLATES.find((t) => t.key === r.type) || {};
+        const st = formatReminderStatus(r, latestOdo);
+        html += `<div class="item" data-rid="${r.id}" style="cursor:pointer">
+          <span style="font-size:22px">${tpl.icon || '📌'}</span>
+          <div class="main">
+            <div class="t1">${escapeHtml(r.label || tpl.label || r.type)}</div>
+            <div class="t2" style="${st.urgent && !st.ok ? 'color:var(--brand);font-weight:600' : (st.urgent ? 'color:#b8860b' : '')}">${st.text}</div>
+          </div>
+          <span class="del" data-rid="${r.id}">&times;</span>
+        </div>`;
+      }
+    }
 
-  // 推送通知开关
-  const notifStatus = 'Notification' in window ? (Notification.permission === 'granted' ? '已开启' : Notification.permission === 'denied' ? '已拒绝' : '未开启') : '不支持';
-  html += `<div class="card" style="margin-top:12px"><div class="card-title">📱 推送通知</div>
-    <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${Notification.permission === 'granted' ? 'ghost' : ''}" style="width:auto">${notifStatus} · 点此设置</button></div>
-    <p class="muted" style="font-size:11px;margin:6px 0 0">开启后，保养到期时即使不在本页面也会收到系统提醒。</p></div>`;
+    html += `<button class="btn" id="addRmdBtn" style="margin-top:12px">+ 添加保养提醒</button>`;
 
-  html += '</div>';
-  container.innerHTML = html;
+    // 推送通知开关
+    const notifStatus = 'Notification' in window ? (Notification.permission === 'granted' ? '已开启' : Notification.permission === 'denied' ? '已拒绝' : '未开启') : '不支持';
+    html += `<div class="card" style="margin-top:12px"><div class="card-title">📱 推送通知</div>
+      <div class="setting-row"><span class="label">到期浏览器推送</span><button id="notifBtn" class="btn sm ${Notification.permission === 'granted' ? 'ghost' : ''}" style="width:auto">${notifStatus} · 点此设置</button></div>
+      <p class="muted" style="font-size:11px;margin:6px 0 0">开启后，保养到期时即使不在本页面也会收到系统提醒。</p></div>`;
 
-  // 删除
-  container.querySelectorAll('[data-rid].del').forEach((b) => {
-    b.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (!confirm('删除此提醒？')) return;
-      await dbDel('reminders', b.getAttribute('data-rid'));
-      await refreshView();
-      toast('已删除');
+    html += '</div>';
+    container.innerHTML = html;
+
+    // 删除
+    container.querySelectorAll('[data-rid].del').forEach((b) => {
+      b.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        if (!confirm('删除此提醒？')) return;
+        await dbDel('reminders', b.getAttribute('data-rid'));
+        await refreshView();
+        toast('已删除');
+      });
     });
-  });
 
-  // 点击编辑
-  container.querySelectorAll('[data-rid].item').forEach((el) => {
-    el.addEventListener('click', () => openReminderForm(el.getAttribute('data-rid')));
-  });
-
-  // 新增
-  container.querySelector('#addRmdBtn').addEventListener('click', () => openReminderForm());
-
-  // 推送通知
-  const notifBtn = container.querySelector('#notifBtn');
-  if (notifBtn) {
-    notifBtn.addEventListener('click', () => {
-      if (!('Notification' in window)) { toast('您的浏览器不支持推送通知'); return; }
-      if (Notification.permission === 'denied') { toast('请在浏览器设置中允许通知权限'); return; }
-      requestNotificationPermission();
+    // 点击编辑
+    container.querySelectorAll('[data-rid].item').forEach((el) => {
+      el.addEventListener('click', () => openReminderForm(el.getAttribute('data-rid')));
     });
+
+    // 新增
+    container.querySelector('#addRmdBtn').addEventListener('click', () => openReminderForm());
+
+    // 推送通知
+    const notifBtn = container.querySelector('#notifBtn');
+    if (notifBtn) {
+      notifBtn.addEventListener('click', () => {
+        if (!('Notification' in window)) { toast('您的浏览器不支持推送通知'); return; }
+        if (Notification.permission === 'denied') { toast('请在浏览器设置中允许通知权限'); return; }
+        requestNotificationPermission();
+      });
+    }
+  } catch (err) {
+    // 极少数情况下整段仍抛错：显示错误态而非永久"加载中"，并给一次重试入口
+    console.error('[红旗] 保养页渲染失败（兜底）:', err && (err.message || err));
+    const loadingEl = container.querySelector('#maintLoading');
+    if (loadingEl) {
+      loadingEl.outerHTML = `<div class="muted" style="text-align:center;padding:30px 12px;line-height:1.8">
+        保养数据加载失败。<br>可刷新页面或点下方重试。<br>
+        <button class="btn" id="maintRetry" style="margin-top:12px">重试</button>
+      </div>`;
+      const rb = container.querySelector('#maintRetry');
+      if (rb) rb.addEventListener('click', () => renderMaintenance(container));
+    }
   }
 }
 
