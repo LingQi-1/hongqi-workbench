@@ -2,6 +2,107 @@
 
 const GRADES = ['92号', '95号', '98号', '爱跑98', '0号柴油'];
 
+/* ===== 自定义日期三列滚轮（解决微信 webview 原生 date 控件月日无法滚轮的问题） ===== */
+function buildDateWheel(initial) {
+  // initial: 'YYYY-MM-DD' 或 null(今天)
+  const def = initial && /^\d{4}-\d{2}-\d{2}$/.test(initial)
+    ? new Date(initial + 'T00:00:00')
+    : new Date();
+  const now = new Date();
+  const curY = now.getFullYear();
+  const years = [];
+  for (let y = curY; y >= curY - 30; y--) years.push(y); // 最近30年，足够补记
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  let days = Array.from({ length: 31 }, (_, i) => i + 1);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'date-wheel';
+  wrap.innerHTML = `
+    <div class="dw-col" data-unit="y"><div class="dw-list"></div></div>
+    <div class="dw-col" data-unit="m"><div class="dw-list"></div></div>
+    <div class="dw-col" data-unit="d"><div class="dw-list"></div></div>
+  `;
+  const colY = wrap.querySelector('[data-unit="y"] .dw-list');
+  const colM = wrap.querySelector('[data-unit="m"] .dw-list');
+  const colD = wrap.querySelector('[data-unit="d"] .dw-list');
+
+  let selY = def.getFullYear();
+  let selM = def.getMonth() + 1;
+  let selD = def.getDate();
+
+  function fillCol(col, arr, sel) {
+    col.innerHTML = arr.map((v) => `<div class="dw-item" data-v="${v}">${v}</div>`).join('');
+    const active = col.querySelector(`[data-v="${sel}"]`);
+    if (active) {
+      active.classList.add('cur');
+      requestAnimationFrame(() => col.scrollTop = active.offsetTop);
+    }
+  }
+  function refreshDays() {
+    const dim = new Date(selY, selM, 0).getDate(); // 当月天数
+    days = Array.from({ length: dim }, (_, i) => i + 1);
+    if (selD > dim) selD = dim;
+    fillCol(colD, days, selD);
+  }
+
+  fillCol(colY, years, selY);
+  fillCol(colM, months, selM);
+  refreshDays();
+
+  // 各列滚动停止后，取中间对齐项
+  [['y', colY, () => selY], ['m', colM, () => selM], ['d', colD, () => selD]].forEach(([unit, col, getSel]) => {
+    let t = null;
+    col.addEventListener('scroll', () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        const items = [...col.querySelectorAll('.dw-item')];
+        const center = col.scrollTop + col.clientHeight / 2;
+        let best = items[0], bestDist = Infinity;
+        for (const it of items) {
+          const c = it.offsetTop + it.offsetHeight / 2;
+          const dist = Math.abs(c - center);
+          if (dist < bestDist) { bestDist = dist; best = it; }
+        }
+        const v = parseInt(best.getAttribute('data-v'), 10);
+        if (unit === 'y') selY = v;
+        if (unit === 'm') selM = v;
+        if (unit === 'd') selD = v;
+        col.scrollTo({ top: best.offsetTop, behavior: 'smooth' });
+        // 高亮中间项
+        col.querySelectorAll('.dw-item').forEach((it) => it.classList.toggle('cur', it === best));
+        // 月份变化时重算天数并修正日
+        if (unit === 'm' || unit === 'y') refreshDays();
+      }, 120);
+    });
+  });
+
+  // 点击某项也能选中
+  wrap.querySelectorAll('.dw-item').forEach((it) => {
+    it.addEventListener('click', () => {
+      const col = it.parentElement;
+      col.scrollTo({ top: it.offsetTop, behavior: 'smooth' });
+    });
+  });
+
+  return {
+    el: wrap,
+    getDate() {
+      const mm = String(selM).padStart(2, '0');
+      const dd = String(selD).padStart(2, '0');
+      return `${selY}-${mm}-${dd}`;
+    },
+    setDate(str) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) return;
+      const d = new Date(str + 'T00:00:00');
+      selY = d.getFullYear(); selM = d.getMonth() + 1; selD = d.getDate();
+      if (!years.includes(selY)) years.unshift(selY);
+      fillCol(colY, years, selY);
+      fillCol(colM, months, selM);
+      refreshDays();
+    }
+  };
+}
+
 async function getCarRecords() {
   const id = await getCurrentCarId();
   const all = await dbGetAll('records');
@@ -158,7 +259,8 @@ async function renderFuel(container) {
         <div class="fuel-card-right">
           <div class="fuel-card-amt">¥${fmtMoney(r.amount)}</div>
         </div>
-        <span class="fuel-card-del" data-del="${r.id}">&times;</span>
+        <span class="fuel-card-edit">✎ 点击编辑</span>
+        <span class="fuel-card-del" data-del="${r.id}">🗑</span>
       </div>`;
     }
     html += '</div>';
@@ -179,7 +281,8 @@ async function renderFuel(container) {
   if (banner) container.insertBefore(banner, container.firstChild);
 
   container.querySelectorAll('[data-del]').forEach((b) => {
-    b.addEventListener('click', async () => {
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation();
       if (!confirm('删除这条记录？')) return;
       await dbDel('records', b.getAttribute('data-del'));
       await renderFuel(container);
@@ -187,15 +290,26 @@ async function renderFuel(container) {
     });
   });
 
+  // 卡片整体点击 → 编辑（删除按钮已 stopPropagation，不受影响）
+  container.querySelectorAll('.fuel-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      const id = card.getAttribute('data-id');
+      const rec = recs.find((r) => r.id === id);
+      if (rec) openFuelForm(rec);
+    });
+  });
+
 }
 
-function openFuelForm() {
+function openFuelForm(existing) {
+  const isEdit = !!(existing && existing.id);
   const wrap = document.createElement('div');
-  const gradesOpt = GRADES.map((g) => `<option value="${g}">${g}</option>`).join('');
+  const gradesOpt = GRADES.map((g) => `<option value="${g}" ${existing && existing.grade === g ? 'selected' : ''}>${g}</option>`).join('');
+  const initDate = existing ? existing.date : todayStr();
   wrap.innerHTML = `
     <div class="field">
-      <label>加油日期（默认今天，可改任意日期补记）</label>
-      <input type="date" id="f_date" value="${todayStr()}" />
+      <label>加油日期（滚轮选择，可任意补记往日）</label>
+      <div id="dwHost"></div>
       <div class="date-chips">
         <button type="button" class="chip" data-d="0">今天</button>
         <button type="button" class="chip" data-d="-1">昨天</button>
@@ -204,12 +318,12 @@ function openFuelForm() {
       </div>
     </div>
     <div class="row2">
-      <div class="field"><label>加多少 L</label><input type="number" id="f_l" inputmode="decimal" placeholder="升数" /></div>
-      <div class="field"><label>加多少钱 ¥</label><input type="number" id="f_a" inputmode="decimal" placeholder="金额" /></div>
+      <div class="field"><label>加多少 L</label><input type="number" id="f_l" inputmode="decimal" placeholder="升数" value="${existing && existing.liters != null ? existing.liters : ''}" /></div>
+      <div class="field"><label>加多少钱 ¥</label><input type="number" id="f_a" inputmode="decimal" placeholder="金额" value="${existing && existing.amount != null ? existing.amount : ''}" /></div>
     </div>
     <div class="field">
       <label>当时油价（元/L，可带出油价页当前价）</label>
-      <input type="number" id="f_p" inputmode="decimal" placeholder="单价" />
+      <input type="number" id="f_p" inputmode="decimal" placeholder="单价" value="${existing && existing.pricePerL != null ? existing.pricePerL : ''}" />
     </div>
     <div class="field">
       <label>油品标号</label>
@@ -217,11 +331,15 @@ function openFuelForm() {
     </div>
     <div class="field">
       <label>里程表读数（可选，填了启用油耗统计）km</label>
-      <input type="number" id="f_odo" inputmode="decimal" placeholder="如 12345，可不填" />
+      <input type="number" id="f_odo" inputmode="decimal" placeholder="如 12345，可不填" value="${existing && existing.odometer ? existing.odometer : ''}" />
     </div>
     <p class="muted" style="font-size:12px;margin:-4px 0 12px">提示：金额必填；升数 / 单价 任意填一项，另一项自动算出（也可都不填，只记金额）。</p>
   `;
-  openSheet('添加加油记录', wrap);
+  openSheet(isEdit ? '编辑加油记录' : '添加加油记录', wrap);
+
+  // 用自定义三列滚轮替换原生 date 控件
+  const wheel = buildDateWheel(initDate);
+  wrap.querySelector('#dwHost').appendChild(wheel.el);
 
   const L = wrap.querySelector('#f_l'), A = wrap.querySelector('#f_a'), P = wrap.querySelector('#f_p');
   let lastEdited = null; // 用户最后手动编辑的字段（'f_l'/'f_a'/'f_p'）
@@ -282,34 +400,34 @@ function openFuelForm() {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
-      wrap.querySelector('#f_date').value = `${y}-${m}-${day}`;
+      wheel.setDate(`${y}-${m}-${day}`);
     });
   });
 
   const save = document.createElement('button');
   save.className = 'btn';
-  save.textContent = '保存';
+  save.textContent = isEdit ? '保存修改' : '保存';
   save.onclick = async () => {
-    const date = wrap.querySelector('#f_date').value || todayStr();
+    const date = wheel.getDate() || todayStr();
     const amount = parseFloat(A.value);
     if (!amount || amount <= 0) { toast('请至少填写加油金额'); return; }
     const liters = parseFloat(L.value);
     const pricePerL = parseFloat(P.value);
     const rec = {
-      id: uid(),
-      carId: await getCurrentCarId(),
+      id: isEdit ? existing.id : uid(),
+      carId: isEdit ? existing.carId : await getCurrentCarId(),
       date,
       liters: isNaN(liters) ? null : liters,
       amount,
       pricePerL: isNaN(pricePerL) ? null : pricePerL,
       grade: wrap.querySelector('#f_grade').value,
       odometer: wrap.querySelector('#f_odo').value || null,
-      createdAt: Date.now()
+      createdAt: isEdit ? existing.createdAt : Date.now()
     };
     await dbPut('records', rec);
     closeSheet();
     await refreshView();
-    toast('已保存');
+    toast(isEdit ? '已修改' : '已保存');
   };
   wrap.appendChild(save);
 }
